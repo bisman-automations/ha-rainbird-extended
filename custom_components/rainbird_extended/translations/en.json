@@ -19,15 +19,39 @@
       "init": {
         "title": "Rain Bird Extended",
         "data": {
-          "disable_rainbird_switches": "Disable the Rain Bird zone switches"
+          "disable_rainbird_switches": "Disable the Rain Bird zone switches",
+          "weather_entity": "Weather forecast for rain skip",
+          "rain_chance": "Skip when the chance of rain is at least",
+          "rain_check_time": "Check the forecast at",
+          "rain_delay_days": "Rain delay to set (days)"
         },
         "data_description": {
-          "disable_rainbird_switches": "Each zone's valve replaces its Rain Bird switch, so the switches are disabled to avoid having every zone twice (for example in HomeKit). Turn this off to keep both."
+          "disable_rainbird_switches": "Each zone's valve replaces its Rain Bird switch, so the switches are disabled to avoid having every zone twice (for example in HomeKit). Turn this off to keep both.",
+          "weather_entity": "Pick a weather entity to add a Rain skip switch. Each day at the check time, if today's forecast is wet enough, the controller's rain delay is set.",
+          "rain_chance": "Compared with today's precipitation probability. Forecasts without one count as wet when the condition is rainy.",
+          "rain_check_time": "Pick a time before your programs start.",
+          "rain_delay_days": "Only raised, never shortened, if a longer rain delay is already set."
         }
       }
     }
   },
   "entity": {
+    "binary_sensor": {
+      "irrigating": {
+        "name": "Irrigating",
+        "state_attributes": {
+          "zones": {
+            "name": "Zones"
+          },
+          "end": {
+            "name": "End"
+          },
+          "run_all_zones": {
+            "name": "Run all zones"
+          }
+        }
+      }
+    },
     "button": {
       "run_all_zones": {
         "name": "Run all zones"
@@ -76,6 +100,11 @@
       },
       "water_used": {
         "name": "Water used"
+      }
+    },
+    "switch": {
+      "rain_skip": {
+        "name": "Rain skip"
       }
     },
     "valve": {

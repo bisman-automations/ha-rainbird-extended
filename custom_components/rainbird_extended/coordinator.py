@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from ical.iter import MergedIterable, SortableItem
 from ical.timespan import Timespan
-from pyrainbird.data import ControllerState, Feature, Schedule
+from pyrainbird.data import ControllerState, Feature, Program, Schedule
 from pyrainbird.exceptions import (
     RainbirdApiException,
     RainbirdCodingException,
@@ -42,6 +42,7 @@ from .const import (
     LCR_BUDGET,
     RAINBIRD_ATTR_DURATION,
     RAINBIRD_DEFAULT_DURATION_MINUTES,
+    SCHEDULE_TOLERANCE,
     START_GRACE_PERIOD,
     TIMEOUT_SECONDS,
 )
@@ -132,6 +133,8 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         # Seasonal adjust (%) by program index, or LCR_BUDGET for LCR controllers.
         self.water_budgets: dict[int, int] = {}
         self._water_budgets_at: datetime | None = None
+        # (program index, local start) of a program started from here.
+        self._manual_program: tuple[int, datetime] | None = None
         # Rain Bird controllers handle one request at a time. Share the core
         # integration's lock when it has one so we never poll concurrently.
         self._device_lock: asyncio.Lock = (
@@ -361,22 +364,42 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                     seconds=controller_state.remaining_runtime
                 )
 
-        result: ZoneEndTimes = {}
-        for zone in active | set(self._started):
-            end = reported.get(zone)
-            if end is None and zone in self._started:
-                end = self._started[zone].end
-            if end is None and controller_state is None:
-                # Controller busy or unsupported this round: keep what we had.
-                end = previous.get(zone)
-            if (
-                end is not None
-                and (prev := previous.get(zone)) is not None
-                and abs(end - prev) < END_TIME_TOLERANCE
-            ):
-                end = prev
-            result[zone] = end
-        return result
+        return {
+            zone: self._end_time(
+                zone,
+                reported.get(zone),
+                zone in active,
+                controller_state is None,
+                previous.get(zone),
+            )
+            for zone in active | set(self._started)
+        }
+
+    def _end_time(
+        self,
+        zone: int,
+        reported: datetime | None,
+        active: bool,
+        no_controller_state: bool,
+        previous: datetime | None,
+    ) -> datetime | None:
+        """Pick the best known end time for one zone."""
+        end = reported
+        if end is None and zone in self._started:
+            end = self._started[zone].end
+        if end is None and active:
+            # The controller didn't say; work it out from the schedule.
+            end = self.scheduled_end(zone)
+        if end is None and no_controller_state:
+            # Controller busy or unsupported this round: keep what we had.
+            end = previous
+        if (
+            end is not None
+            and previous is not None
+            and abs(end - previous) < END_TIME_TOLERANCE
+        ):
+            end = previous
+        return end
 
     def _track_runs(self, end_times: ZoneEndTimes) -> None:
         """Record run starts, stops and time spent running, from any source."""
@@ -404,24 +427,43 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._prev_end_times = dict(end_times)
         self._last_tick = now
 
-    def next_run(self, zone: int) -> datetime | None:
-        """When the controller's schedule next runs this zone."""
+    @property
+    def _schedule(self) -> Schedule | None:
         if self.schedule is None or not isinstance(self.schedule.data, Schedule):
             return None
-        schedule = self.schedule.data
-        now = dt_util.now()
+        return self.schedule.data
+
+    def _budget_scale(self, program: int) -> float:
+        """How seasonal adjust stretches a program's runtimes (1.0 = as set)."""
+        percent = self.water_budgets.get(program, self.water_budgets.get(LCR_BUDGET))
+        return (percent or 100) / 100
+
+    def _program_slot(
+        self, program: Program, zone: int
+    ) -> tuple[timedelta, timedelta] | None:
+        """Offset from the program start and duration of a zone's run in it.
+
+        Zones in a program run one after another, in zone order, each for its
+        runtime scaled by the program's seasonal adjust.
+        """
+        scale = self._budget_scale(program.program)
+        offset = timedelta()
+        for zone_duration in program.durations:
+            duration = zone_duration.duration * scale
+            if zone_duration.zone == zone:
+                return (offset, duration) if duration else None
+            offset += duration
+        return None
+
+    def _zone_timeline(self, zone: int, now: datetime) -> ProgramTimeline | None:
+        """Every scheduled run of a zone, from the controller's schedule."""
+        if (schedule := self._schedule) is None:
+            return None
         iters: list[Iterable[SortableItem[Timespan, ProgramEvent]]] = []
         for program in schedule.programs:
-            # Zones in a program run one after another, in zone order.
-            offset = timedelta()
-            duration: timedelta | None = None
-            for zone_duration in program.durations:
-                if zone_duration.zone == zone:
-                    duration = zone_duration.duration
-                    break
-                offset += zone_duration.duration
-            if not duration:
+            if (slot := self._program_slot(program, zone)) is None:
                 continue
+            offset, duration = slot
             for start in program.starts:
                 dtstart = (
                     now.replace(
@@ -444,10 +486,38 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         for zone_schedule in schedule.zone_schedules.values():
             if zone_schedule.zone == zone:
                 iters.extend(zone_schedule.timeline_iters(now.tzinfo))
-        if not iters:
+        return ProgramTimeline(MergedIterable(iters)) if iters else None
+
+    def next_run(self, zone: int) -> datetime | None:
+        """When the controller's schedule next runs this zone."""
+        now = dt_util.now()
+        if (timeline := self._zone_timeline(zone, now)) is None:
             return None
-        event = next(ProgramTimeline(MergedIterable(iters)).start_after(now), None)
+        event = next(timeline.start_after(now), None)
         return dt_util.as_utc(event.start) if event else None
+
+    def scheduled_end(self, zone: int) -> datetime | None:
+        """When a running zone should finish, worked out from the schedule.
+
+        Used when the controller doesn't report the remaining run time: for a
+        program started from here, and for scheduled runs.
+        """
+        now = dt_util.now()
+        if self._manual_program is not None and (schedule := self._schedule):
+            index, started = self._manual_program
+            program = next((p for p in schedule.programs if p.program == index), None)
+            if program is not None and (slot := self._program_slot(program, zone)):
+                offset, duration = slot
+                if started + offset - SCHEDULE_TOLERANCE <= now:
+                    end = started + offset + duration
+                    if now < end + SCHEDULE_TOLERANCE:
+                        return dt_util.as_utc(end)
+        if (timeline := self._zone_timeline(zone, now)) is None:
+            return None
+        event = next(timeline.active_after(now - SCHEDULE_TOLERANCE), None)
+        if event is not None and event.start - SCHEDULE_TOLERANCE <= now:
+            return dt_util.as_utc(event.end)
+        return None
 
     async def async_start_zone(
         self, zone: int, seconds: int | None = None, *, _sequence: bool = False
@@ -455,6 +525,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         """Run a zone for its configured runtime (or the given seconds)."""
         if not _sequence:
             self._cancel_sequence()
+        self._manual_program = None
         seconds = self.runtime_for(zone) if seconds is None else seconds
         minutes = max(1, round(seconds / 60))
         await self._async_command(self.controller.irrigate_zone, zone, minutes)
@@ -465,6 +536,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
     async def async_stop(self) -> None:
         """Stop all irrigation (Rain Bird can't stop a single zone)."""
         self._cancel_sequence()
+        self._manual_program = None
         await self._async_command(self.controller.stop_irrigation)
         self._started.clear()
         self._optimistic_active(set())
@@ -474,6 +546,14 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._cancel_sequence()
         await self._async_command(self.controller.set_program, program)
         self._started.clear()
+        self._manual_program = (program, dt_util.now())
+        self.config_entry.async_create_background_task(
+            self.hass, self.rainbird.async_request_refresh(), f"{DOMAIN} confirm"
+        )
+
+    async def async_set_rain_delay(self, days: int) -> None:
+        """Set the controller's rain delay and refresh the core entities."""
+        await self._async_command(self.controller.set_rain_delay, days)
         self.config_entry.async_create_background_task(
             self.hass, self.rainbird.async_request_refresh(), f"{DOMAIN} confirm"
         )

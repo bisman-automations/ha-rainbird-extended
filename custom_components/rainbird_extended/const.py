@@ -51,3 +51,18 @@ ATTR_DURATION = "duration"
 # Water budget "program" code for controllers with one controller-wide value.
 LCR_BUDGET = 0xFF
 SEASONAL_ADJUST_MIN = 10
+
+# How far a zone's actual start may drift from its scheduled or expected start
+# and still be matched to it when working out time remaining.
+SCHEDULE_TOLERANCE = timedelta(minutes=2)
+
+# Rain skip options.
+CONF_WEATHER_ENTITY = "weather_entity"
+CONF_RAIN_CHANCE = "rain_chance"
+CONF_RAIN_CHECK_TIME = "rain_check_time"
+CONF_RAIN_DELAY_DAYS = "rain_delay_days"
+DEFAULT_RAIN_CHANCE = 60
+DEFAULT_RAIN_CHECK_TIME = "04:00:00"
+DEFAULT_RAIN_DELAY_DAYS = 1
+RAINY_CONDITIONS = {"rainy", "pouring", "lightning-rainy", "snowy-rainy"}
+EVENT_RAIN_SKIP = f"{DOMAIN}_rain_skip"

@@ -1,5 +1,13 @@
 {
   "entity": {
+    "binary_sensor": {
+      "irrigating": {
+        "default": "mdi:sprinkler",
+        "state": {
+          "on": "mdi:sprinkler-variant"
+        }
+      }
+    },
     "button": {
       "run_all_zones": {
         "default": "mdi:sprinkler-variant"
@@ -40,6 +48,14 @@
       },
       "water_used": {
         "default": "mdi:water"
+      }
+    },
+    "switch": {
+      "rain_skip": {
+        "default": "mdi:weather-pouring",
+        "state": {
+          "off": "mdi:weather-cloudy"
+        }
       }
     },
     "valve": {

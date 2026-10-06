@@ -14,16 +14,29 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TimeSelector,
 )
 
 from .const import (
     CONF_DISABLE_RAINBIRD_SWITCHES,
+    CONF_RAIN_CHANCE,
+    CONF_RAIN_CHECK_TIME,
+    CONF_RAIN_DELAY_DAYS,
     CONF_RAINBIRD_ENTRY_ID,
+    CONF_WEATHER_ENTITY,
     DEFAULT_DISABLE_RAINBIRD_SWITCHES,
+    DEFAULT_RAIN_CHANCE,
+    DEFAULT_RAIN_CHECK_TIME,
+    DEFAULT_RAIN_DELAY_DAYS,
     DOMAIN,
     RAINBIRD_DOMAIN,
 )
@@ -103,17 +116,52 @@ class RainbirdExtendedOptions(OptionsFlowWithReload):
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(data=user_input)
+        options = self.config_entry.options
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
                     vol.Required(
                         CONF_DISABLE_RAINBIRD_SWITCHES,
-                        default=self.config_entry.options.get(
+                        default=options.get(
                             CONF_DISABLE_RAINBIRD_SWITCHES,
                             DEFAULT_DISABLE_RAINBIRD_SWITCHES,
                         ),
-                    ): bool
+                    ): bool,
+                    vol.Optional(
+                        CONF_WEATHER_ENTITY,
+                        description={
+                            "suggested_value": options.get(CONF_WEATHER_ENTITY)
+                        },
+                    ): EntitySelector(EntitySelectorConfig(domain="weather")),
+                    vol.Required(
+                        CONF_RAIN_CHANCE,
+                        default=options.get(CONF_RAIN_CHANCE, DEFAULT_RAIN_CHANCE),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=10,
+                            max=100,
+                            step=5,
+                            unit_of_measurement="%",
+                            mode=NumberSelectorMode.SLIDER,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_RAIN_CHECK_TIME,
+                        default=options.get(
+                            CONF_RAIN_CHECK_TIME, DEFAULT_RAIN_CHECK_TIME
+                        ),
+                    ): TimeSelector(),
+                    vol.Required(
+                        CONF_RAIN_DELAY_DAYS,
+                        default=options.get(
+                            CONF_RAIN_DELAY_DAYS, DEFAULT_RAIN_DELAY_DAYS
+                        ),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=1, max=14, step=1, mode=NumberSelectorMode.BOX
+                        )
+                    ),
                 }
             ),
         )
