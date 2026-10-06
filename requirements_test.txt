@@ -1,6 +1,6 @@
 # Pinned so CI only changes when Dependabot proposes an update.
 # pytest-homeassistant-custom-component pins Home Assistant itself.
-pytest-homeassistant-custom-component==0.13.367
+pytest-homeassistant-custom-component==0.13.368
 # Match the version Home Assistant's Rain Bird integration requires.
 pyrainbird==6.5.0
 ruff==0.16.10
