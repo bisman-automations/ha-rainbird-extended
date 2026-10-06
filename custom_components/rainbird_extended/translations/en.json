@@ -1,0 +1,34 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Every Rain Bird controller is already extended.",
+      "no_rainbird": "Set up the Rain Bird integration first, then add Rain Bird Extended."
+    },
+    "step": {
+      "user": {
+        "title": "Rain Bird Extended",
+        "description": "Choose the Rain Bird controller to add valves, valve runtimes and time remaining to.",
+        "data": {
+          "rainbird_entry_id": "Rain Bird controller"
+        }
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "valve_runtime": {
+        "name": "Valve runtime"
+      }
+    },
+    "sensor": {
+      "time_remaining": {
+        "name": "Time remaining"
+      }
+    },
+    "valve": {
+      "zone": {
+        "name": "Valve"
+      }
+    }
+  }
+}

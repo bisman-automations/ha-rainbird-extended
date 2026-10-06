@@ -1,0 +1,22 @@
+{
+  "entity": {
+    "number": {
+      "valve_runtime": {
+        "default": "mdi:timer-cog-outline"
+      }
+    },
+    "sensor": {
+      "time_remaining": {
+        "default": "mdi:timer-sand"
+      }
+    },
+    "valve": {
+      "zone": {
+        "default": "mdi:sprinkler",
+        "state": {
+          "open": "mdi:sprinkler-variant"
+        }
+      }
+    }
+  }
+}
