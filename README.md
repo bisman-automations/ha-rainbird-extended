@@ -1,8 +1,14 @@
-# Rain Bird Extended
+<p align="center">
+  <img src="https://raw.githubusercontent.com/bisman-automations/ha-rainbird-extended/main/custom_components/rainbird_extended/brand/icon@2x.png" alt="Rain Bird Extended" width="128" height="128">
+</p>
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
-[![CI](https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/ci.yml/badge.svg)](https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<h1 align="center">Rain Bird Extended</h1>
+
+<p align="center">
+  <a href="https://hacs.xyz"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg" alt="HACS Custom"></a>
+  <a href="https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/ci.yml"><img src="https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
 
 A Home Assistant custom integration that extends the built-in
 [Rain Bird](https://www.home-assistant.io/integrations/rainbird) integration.
