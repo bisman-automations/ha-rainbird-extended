@@ -1,5 +1,9 @@
 # Rain Bird Extended
 
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
+[![CI](https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/ci.yml/badge.svg)](https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A Home Assistant custom integration that extends the built-in
 [Rain Bird](https://www.home-assistant.io/integrations/rainbird) integration.
 For every zone it adds three entities **to the zone devices Rain Bird already
@@ -24,6 +28,10 @@ In Use, Set Duration, Remaining Duration).
 ## Install
 
 ### HACS
+
+[![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=bisman-automations&repository=ha-rainbird-extended&category=integration)
+
+Or add it by hand:
 
 1. HACS → ⋮ → **Custom repositories** → add
    `https://github.com/bisman-automations/ha-rainbird-extended` as an **Integration**.
@@ -95,3 +103,7 @@ pip install -r requirements_test.txt
 pytest
 ruff check . && ruff format --check .
 ```
+
+## License
+
+[MIT](LICENSE)
