@@ -26,7 +26,7 @@ In Use, Set Duration, Remaining Duration).
 ### HACS
 
 1. HACS → ⋮ → **Custom repositories** → add
-   `https://github.com/donavanbecker/ha-rainbird-extended` as an **Integration**.
+   `https://github.com/bisman-automations/ha-rainbird-extended` as an **Integration**.
 2. Install **Rain Bird Extended** and restart Home Assistant.
 
 ### Manual
