@@ -95,6 +95,13 @@ so you don't get each zone twice.
 - If Rain Bird reloads (for example after changing its options), Rain Bird
   Extended reloads with it automatically.
 
+## Reporting a problem
+
+Open an [issue](https://github.com/bisman-automations/ha-rainbird-extended/issues)
+and attach diagnostics: **Settings → Devices & services → Rain Bird Extended →
+⋮ → Download diagnostics**. They include your controller model and firmware and
+whether it reports remaining run time; the controller's MAC address is removed.
+
 ## Development
 
 ```bash

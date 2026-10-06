@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Diagnostics: **Download diagnostics** on the integration page now includes the
+  controller model and firmware, whether it reports remaining run time, zones,
+  runtimes, active zones and current end times. The controller's MAC address
+  is redacted.
+- Brand icon shown in Home Assistant and HACS.
+
 ## [1.0.0] - 2026-10-06
 
 Initial release.

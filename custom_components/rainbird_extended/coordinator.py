@@ -124,6 +124,16 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         return zones
 
     @property
+    def supports_controller_state(self) -> bool | None:
+        """Whether the controller reports remaining run time (None = unknown)."""
+        return self._supports_controller_state
+
+    @property
+    def local_runs(self) -> dict[int, _LocalRun]:
+        """Runs started from Home Assistant that are still being tracked."""
+        return dict(self._started)
+
+    @property
     def active_zones(self) -> set[int]:
         """Zones the controller reports as running."""
         return set(self.rainbird.data.active_zones) if self.rainbird.data else set()
