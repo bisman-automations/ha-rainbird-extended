@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from ical.iter import MergedIterable, SortableItem
 from ical.timespan import Timespan
-from pyrainbird.data import ControllerState, Schedule
+from pyrainbird.data import ControllerState, Feature, Schedule
 from pyrainbird.exceptions import (
     RainbirdApiException,
     RainbirdCodingException,
@@ -39,6 +39,7 @@ from .const import (
     DOMAIN,
     EARLY_STOP_MARGIN,
     END_TIME_TOLERANCE,
+    LCR_BUDGET,
     RAINBIRD_ATTR_DURATION,
     RAINBIRD_DEFAULT_DURATION_MINUTES,
     START_GRACE_PERIOD,
@@ -86,7 +87,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
     This coordinator does not poll on its own schedule. It refreshes whenever the
     core Rain Bird coordinator refreshes (about once a minute) and after a zone is
     started from here. It talks to the controller while a zone is running, and
-    every 30 minutes while idle to keep the seasonal adjustment current.
+    every 30 minutes to keep the seasonal adjustment current.
     """
 
     config_entry: ConfigEntry
@@ -119,6 +120,18 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self.controller = rainbird_data.controller
         model = getattr(rainbird_data, "model_info", None)
         self.max_programs: int = model.model_info.max_programs if model else 0
+        self.supports_water_budget: bool = bool(
+            model and model.model_info.supports_water_budget
+        )
+        self.program_based: bool = bool(
+            model and model.model_info.is_feature_supported(Feature.PROGRAM_BASED)
+        )
+        self.max_seasonal_adjust: int = (
+            model.model_info.limits.max_seasonal_adjust if model else 200
+        )
+        # Seasonal adjust (%) by program index, or LCR_BUDGET for LCR controllers.
+        self.water_budgets: dict[int, int] = {}
+        self._water_budgets_at: datetime | None = None
         # Rain Bird controllers handle one request at a time. Share the core
         # integration's lock when it has one so we never poll concurrently.
         self._device_lock: asyncio.Lock = (
@@ -236,11 +249,16 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         """Work out the expected end time for each running zone."""
         active = self.active_zones
         now = dt_util.utcnow()
+        if self.supports_water_budget and (
+            self._water_budgets_at is None
+            or now - self._water_budgets_at > CONTROLLER_STATE_IDLE_REFRESH
+        ):
+            await self._async_fetch_water_budgets()
         controller_state: ControllerState | None = None
         if self._supports_controller_state is not False:
             if active:
                 controller_state = await self._async_fetch_controller_state()
-            elif (
+            elif not self.supports_water_budget and (
                 self._controller_state_at is None
                 or now - self._controller_state_at > CONTROLLER_STATE_IDLE_REFRESH
             ):
@@ -252,6 +270,37 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         end_times = self._compute_end_times(active, controller_state)
         self._track_runs(end_times)
         return end_times
+
+    @property
+    def water_budget_keys(self) -> list[int]:
+        """Program indexes with their own seasonal adjust (LCR: one for all)."""
+        if self.program_based and self.max_programs:
+            return list(range(self.max_programs))
+        return [LCR_BUDGET]
+
+    async def _async_fetch_water_budgets(self) -> None:
+        """Read each program's seasonal adjust; never fails the update."""
+        self._water_budgets_at = dt_util.utcnow()
+        for key in self.water_budget_keys:
+            try:
+                async with self._device_lock, asyncio.timeout(TIMEOUT_SECONDS):
+                    budget = await self.controller.water_budget(key)
+            except (RainbirdDeviceNackError, RainbirdCodingException) as err:
+                _LOGGER.info("Controller does not report seasonal adjust: %s", err)
+                self.supports_water_budget = False
+                self.water_budgets.clear()
+                return
+            except (RainbirdApiException, TimeoutError, KeyError, ValueError) as err:
+                _LOGGER.debug("Could not read seasonal adjust: %s", err)
+                self._water_budgets_at = None
+                return
+            self.water_budgets[key] = int(budget.adjust)
+
+    async def async_set_water_budget(self, key: int, percent: int) -> None:
+        """Set a program's seasonal adjust (LCR: the controller's)."""
+        await self._async_command(self.controller.set_water_budget, key, percent)
+        self.water_budgets[key] = percent
+        self.async_update_listeners()
 
     async def _async_fetch_controller_state(self) -> ControllerState | None:
         """Ask the controller how long the running zone has left."""

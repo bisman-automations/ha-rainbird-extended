@@ -15,6 +15,12 @@
       "flow_rate": {
         "default": "mdi:water-pump"
       },
+      "seasonal_adjustment": {
+        "default": "mdi:sun-snowflake-variant"
+      },
+      "seasonal_adjustment_program": {
+        "default": "mdi:sun-snowflake-variant"
+      },
       "valve_runtime": {
         "default": "mdi:timer-cog-outline"
       }

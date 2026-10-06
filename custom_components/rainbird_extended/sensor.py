@@ -37,7 +37,10 @@ async def async_setup_entry(
     """Add the zone and controller sensors."""
     coordinator = entry.runtime_data
     _, volume_unit = water_units(hass)
-    entities: list[Entity] = [RainbirdSeasonalAdjustment(coordinator)]
+    entities: list[Entity] = []
+    if not coordinator.supports_water_budget:
+        # Read-only fallback from the controller state for older models.
+        entities.append(RainbirdSeasonalAdjustment(coordinator))
     for zone in coordinator.linked_zones:
         entities.extend(
             (

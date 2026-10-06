@@ -23,7 +23,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dashboard's water consumption.
 - **Run program** buttons (one per program), **Run all zones** and **Stop
   irrigation** buttons on the controller.
-- **Seasonal adjustment** sensor on the controller.
+- **Seasonal adjustment** per program (10–200%), adjustable from Home Assistant,
+  using the controller's water budget. Models without water budgets get a
+  read-only sensor instead.
 - `rainbird_extended.start_zone` action to run a zone once for a set time.
 - Option to disable the core Rain Bird zone switches the valves replace.
 
@@ -31,8 +33,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The core Rain Bird zone switches are now disabled by default; turn off
   **Disable the Rain Bird zone switches** in the options to keep them.
-- The controller is now also asked for its state every 30 minutes while idle
-  (for the seasonal adjustment).
+- The controller is now also asked for its seasonal adjustment every 30
+  minutes.
 
 ## [1.0.0] - 2026-10-06
 

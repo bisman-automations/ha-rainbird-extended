@@ -47,3 +47,7 @@ FLOW_RATE_STEP = 0.1
 
 SERVICE_START_ZONE = "start_zone"
 ATTR_DURATION = "duration"
+
+# Water budget "program" code for controllers with one controller-wide value.
+LCR_BUDGET = 0xFF
+SEASONAL_ADJUST_MIN = 10

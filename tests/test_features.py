@@ -6,6 +6,8 @@ from datetime import timedelta
 from unittest.mock import MagicMock
 
 from freezegun.api import FrozenDateTimeFactory
+from pyrainbird.data import WaterBudget
+from pyrainbird.exceptions import RainbirdDeviceNackError
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -36,7 +38,8 @@ FLOW = "number.rain_bird_sprinkler_2_flow_rate"
 WATER = "sensor.rain_bird_sprinkler_2_water_used"
 LAST_RUN = "sensor.rain_bird_sprinkler_2_last_run"
 NEXT_RUN = "sensor.rain_bird_sprinkler_2_next_run"
-SEASONAL = "sensor.rain_bird_controller_seasonal_adjustment"
+SEASONAL_A = "number.rain_bird_controller_seasonal_adjustment_a"
+SEASONAL_SENSOR = "sensor.rain_bird_controller_seasonal_adjustment"
 RUN_ALL = "button.rain_bird_controller_run_all_zones"
 STOP = "button.rain_bird_controller_stop_irrigation"
 PROGRAM_B = "button.rain_bird_controller_run_program_b"
@@ -192,17 +195,56 @@ async def test_seasonal_adjustment(
     setup_integrations: MagicMock,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Read while idle at setup and again every 30 minutes."""
-    assert hass.states.get(SEASONAL).state == "100"
-    assert hass.states.get(SEASONAL).attributes["unit_of_measurement"] == "%"
-    setup_integrations.get_combined_controller_state.return_value = controller_state(
-        seasonal=80
+    """One adjustable seasonal adjustment per program, re-read every 30 min."""
+    controller = setup_integrations
+    state = hass.states.get(SEASONAL_A)
+    assert state.state == "100"
+    assert state.attributes["unit_of_measurement"] == "%"
+    assert state.attributes["min"] == 10
+    assert state.attributes["max"] == 200
+    assert hass.states.get("number.rain_bird_controller_seasonal_adjustment_c")
+    assert hass.states.get(SEASONAL_SENSOR) is None
+    # Idle: the controller state isn't asked for, only the water budgets.
+    controller.get_combined_controller_state.assert_not_awaited()
+
+    await hass.services.async_call(
+        NUMBER_DOMAIN,
+        SERVICE_SET_VALUE,
+        {ATTR_ENTITY_ID: SEASONAL_A, ATTR_VALUE: 80},
+        blocking=True,
     )
+    controller.set_water_budget.assert_awaited_once_with(0, 80)
+    assert hass.states.get(SEASONAL_A).state == "80"
+
+    # Changed in the Rain Bird app: picked up on the next 30 minute read.
+    controller.water_budget.side_effect = lambda key: WaterBudget(key, 120)
     await _poll_core(hass, freezer)
-    assert hass.states.get(SEASONAL).state == "100"
+    assert hass.states.get(SEASONAL_A).state == "80"
     await _advance(hass, freezer, timedelta(minutes=30))
     await _poll_core(hass, freezer)
-    assert hass.states.get(SEASONAL).state == "80"
+    assert hass.states.get(SEASONAL_A).state == "120"
+
+
+async def test_seasonal_adjustment_without_water_budget(
+    hass: HomeAssistant,
+    controller: MagicMock,
+    mock_rainbird: MagicMock,
+    rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
+) -> None:
+    """Controllers that reject water budgets fall back to a read-only sensor."""
+    controller.water_budget.side_effect = RainbirdDeviceNackError()
+    controller.get_combined_controller_state.return_value = controller_state(
+        seasonal=90
+    )
+    assert await hass.config_entries.async_setup(rainbird_entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(extended_entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(SEASONAL_A) is None
+    assert hass.states.get(SEASONAL_SENSOR).state == "90"
+    await hass.config_entries.async_unload(extended_entry.entry_id)
+    await hass.config_entries.async_unload(rainbird_entry.entry_id)
 
 
 @pytest.mark.parametrize("active_zones", [{2}])
@@ -213,15 +255,14 @@ async def test_seasonal_adjustment_unsupported(
     rainbird_entry: MockConfigEntry,
     extended_entry: MockConfigEntry,
 ) -> None:
-    """Controllers that don't report it show the sensor as unavailable."""
-    from pyrainbird.exceptions import RainbirdDeviceNackError  # noqa: PLC0415
-
+    """Controllers that report neither show the sensor as unavailable."""
+    controller.water_budget.side_effect = RainbirdDeviceNackError()
     controller.get_combined_controller_state.side_effect = RainbirdDeviceNackError()
     assert await hass.config_entries.async_setup(rainbird_entry.entry_id)
     await hass.async_block_till_done()
     assert await hass.config_entries.async_setup(extended_entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get(SEASONAL).state == STATE_UNAVAILABLE
+    assert hass.states.get(SEASONAL_SENSOR).state == STATE_UNAVAILABLE
     await hass.config_entries.async_unload(extended_entry.entry_id)
     await hass.config_entries.async_unload(rainbird_entry.entry_id)
 

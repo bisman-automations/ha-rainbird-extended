@@ -1,22 +1,34 @@
-"""Valve runtime and flow rate numbers for each Rain Bird zone."""
+"""Valve runtime and flow rate per zone; seasonal adjustment per program."""
 
 from __future__ import annotations
 
-from homeassistant.components.number import NumberDeviceClass, NumberMode, RestoreNumber
-from homeassistant.const import EntityCategory, UnitOfTime
+from homeassistant.components.number import (
+    NumberDeviceClass,
+    NumberEntity,
+    NumberMode,
+    RestoreNumber,
+)
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import RainbirdExtendedConfigEntry
 from .const import (
     FLOW_RATE_MAX,
     FLOW_RATE_STEP,
+    LCR_BUDGET,
     RUNTIME_MAX_SECONDS,
     RUNTIME_MIN_SECONDS,
     RUNTIME_STEP_SECONDS,
+    SEASONAL_ADJUST_MIN,
 )
 from .coordinator import RainbirdExtendedCoordinator
-from .entity import RainbirdExtendedZoneEntity, water_units
+from .entity import (
+    RainbirdExtendedControllerEntity,
+    RainbirdExtendedZoneEntity,
+    water_units,
+)
 
 
 async def async_setup_entry(
@@ -27,14 +39,20 @@ async def async_setup_entry(
     """Add a valve runtime and flow rate for every zone."""
     coordinator = entry.runtime_data
     flow_unit, _ = water_units(hass)
-    async_add_entities(
+    entities: list[Entity] = [
         entity
         for zone in coordinator.linked_zones
         for entity in (
             RainbirdZoneRuntime(coordinator, zone),
             RainbirdZoneFlowRate(coordinator, zone, flow_unit),
         )
-    )
+    ]
+    if coordinator.supports_water_budget:
+        entities.extend(
+            RainbirdSeasonalAdjustment(coordinator, key)
+            for key in coordinator.water_budget_keys
+        )
+    async_add_entities(entities)
 
 
 class RainbirdZoneRuntime(RainbirdExtendedZoneEntity, RestoreNumber):
@@ -115,3 +133,39 @@ class RainbirdZoneFlowRate(RainbirdExtendedZoneEntity, RestoreNumber):
         self._attr_native_value = round(float(value), 1)
         self.coordinator.flow_rates[self._zone] = self._attr_native_value
         self.async_write_ha_state()
+
+
+class RainbirdSeasonalAdjustment(RainbirdExtendedControllerEntity, NumberEntity):
+    """A program's seasonal adjustment: 100% runs zones as programmed."""
+
+    _attr_mode = NumberMode.SLIDER
+    _attr_native_min_value = SEASONAL_ADJUST_MIN
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = PERCENTAGE
+
+    def __init__(self, coordinator: RainbirdExtendedCoordinator, key: int) -> None:
+        """Initialize the number."""
+        if key == LCR_BUDGET:
+            super().__init__(coordinator, "seasonal_adjustment")
+            self._attr_translation_key = "seasonal_adjustment"
+        else:
+            letter = chr(ord("A") + key)
+            super().__init__(coordinator, f"seasonal_adjustment_{letter.lower()}")
+            self._attr_translation_key = "seasonal_adjustment_program"
+            self._attr_translation_placeholders = {"program": letter}
+        self._key = key
+        self._attr_native_max_value = coordinator.max_seasonal_adjust
+
+    @property
+    def available(self) -> bool:
+        """Available once the controller has reported the value."""
+        return super().available and self._key in self.coordinator.water_budgets
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the seasonal adjustment."""
+        return self.coordinator.water_budgets.get(self._key)
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the seasonal adjustment."""
+        await self.coordinator.async_set_water_budget(self._key, round(value))

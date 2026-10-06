@@ -34,7 +34,7 @@ devices, no second connection to the controller.
 | Run program A, B, … | `button.rain_bird_controller_run_program_a` | Starts one of the controller's programs. One button per program the model supports. |
 | Run all zones | `button.rain_bird_controller_run_all_zones` | Runs every zone once, in order, each for its valve runtime. |
 | Stop irrigation | `button.rain_bird_controller_stop_irrigation` | Stops whatever is running, including Run all zones. |
-| Seasonal adjustment | `sensor.rain_bird_controller_seasonal_adjustment` | The controller's seasonal adjust (100% = runtimes as programmed). Unavailable on controllers that don't report it. |
+| Seasonal adjustment A, B, … | `number.rain_bird_controller_seasonal_adjustment_a` | Each program's seasonal adjust, 10–200% (100% = runtimes as programmed). Change it here or in the Rain Bird app; re-read every 30 minutes. Controllers with one controller-wide value (ESP-RZXe, ST8) get a single **Seasonal adjustment**. Models without water budgets get a read-only sensor instead. |
 
 ### Action: `rainbird_extended.start_zone`
 

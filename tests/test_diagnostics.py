@@ -44,9 +44,11 @@ async def test_diagnostics_idle(
         "model": "ESP-TM2",
         "model_code": "ESP_TM2",
         "firmware": "9.12",
-        "supports_remaining_runtime": True,
-        "seasonal_adjust": 100,
+        "supports_remaining_runtime": None,
+        "seasonal_adjust": None,
         "max_programs": 3,
+        "supports_water_budget": True,
+        "water_budgets": {"0": 100, "1": 100, "2": 100},
     }
     assert diag["options"] == {"disable_rainbird_switches": False}
     assert diag["flow_rates"] == {"1": 0.0, "2": 0.0, "3": 0.0}

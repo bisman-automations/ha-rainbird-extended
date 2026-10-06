@@ -46,6 +46,11 @@ async def async_get_config_entry_diagnostics(
                 else None
             ),
             "max_programs": coordinator.max_programs,
+            "supports_water_budget": coordinator.supports_water_budget,
+            "water_budgets": {
+                str(key): value
+                for key, value in sorted(coordinator.water_budgets.items())
+            },
         },
         "options": dict(entry.options),
         "schedule_loaded": bool(coordinator.schedule and coordinator.schedule.data),
