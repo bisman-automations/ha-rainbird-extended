@@ -1,0 +1,27 @@
+name: Release check
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tag matches manifest.json and CHANGELOG.md
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest=$(jq -r .version custom_components/rainbird_extended/manifest.json)
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::Tag v$tag doesn't match manifest.json version $manifest"
+            exit 1
+          fi
+          if ! grep -q "^## \[$tag\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no [$tag] section"
+            exit 1
+          fi
+          echo "v$tag matches manifest.json and CHANGELOG.md"

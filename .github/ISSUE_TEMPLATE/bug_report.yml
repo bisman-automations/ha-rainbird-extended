@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in Rain Bird Extended isn't working right
+labels: [bug]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.9.4"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Rain Bird Extended version
+      placeholder: "1.2.0"
+    validations:
+      required: true
+  - type: input
+    id: controller
+    attributes:
+      label: Controller model and firmware
+      description: Shown on the Rain Bird controller's device page.
+      placeholder: "ARC8, firmware 2.12"
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: >-
+        Settings → Devices & services → Rain Bird Extended → ⋮ → Download
+        diagnostics, then drag the file here. The controller's MAC address is
+        removed.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Anything logged by custom_components.rainbird_extended or homeassistant.components.rainbird.
+      render: text

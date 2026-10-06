@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest something Rain Bird Extended could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like it to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why? How would you use it?
+  - type: input
+    id: controller
+    attributes:
+      label: Controller model
+      placeholder: "ARC8"
