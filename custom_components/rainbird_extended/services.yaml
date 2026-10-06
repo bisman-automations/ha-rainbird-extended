@@ -1,0 +1,11 @@
+start_zone:
+  target:
+    entity:
+      integration: rainbird_extended
+      domain: valve
+  fields:
+    duration:
+      required: true
+      example: "00:15:00"
+      selector:
+        duration:

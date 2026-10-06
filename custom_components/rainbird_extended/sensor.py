@@ -1,16 +1,32 @@
-"""Time remaining sensor for each Rain Bird zone."""
+"""Sensors for Rain Bird Extended."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Any
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
-from homeassistant.core import HomeAssistant
+from homeassistant.components.sensor import (
+    RestoreSensor,
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
+from homeassistant.const import PERCENTAGE
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import RainbirdExtendedConfigEntry
-from .coordinator import RainbirdExtendedCoordinator
-from .entity import RainbirdExtendedZoneEntity
+from .coordinator import RainbirdExtendedCoordinator, ZoneRun
+from .entity import (
+    RainbirdExtendedControllerEntity,
+    RainbirdExtendedZoneEntity,
+    water_units,
+)
+
+ATTR_DURATION = "duration"
+ATTR_END = "end"
 
 
 async def async_setup_entry(
@@ -18,12 +34,21 @@ async def async_setup_entry(
     entry: RainbirdExtendedConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Add a time remaining sensor for every zone."""
+    """Add the zone and controller sensors."""
     coordinator = entry.runtime_data
-    async_add_entities(
-        RainbirdZoneTimeRemaining(coordinator, zone)
-        for zone in coordinator.linkable_zones()
-    )
+    _, volume_unit = water_units(hass)
+    entities: list[Entity] = [RainbirdSeasonalAdjustment(coordinator)]
+    for zone in coordinator.linked_zones:
+        entities.extend(
+            (
+                RainbirdZoneTimeRemaining(coordinator, zone),
+                RainbirdZoneLastRun(coordinator, zone),
+                RainbirdZoneWaterUsed(coordinator, zone, volume_unit),
+            )
+        )
+        if coordinator.schedule is not None and coordinator.max_programs:
+            entities.append(RainbirdZoneNextRun(coordinator, zone))
+    async_add_entities(entities)
 
 
 class RainbirdZoneTimeRemaining(RainbirdExtendedZoneEntity, SensorEntity):
@@ -46,3 +71,132 @@ class RainbirdZoneTimeRemaining(RainbirdExtendedZoneEntity, SensorEntity):
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.get(self._zone)
+
+
+class RainbirdZoneNextRun(RainbirdExtendedZoneEntity, SensorEntity):
+    """When the controller's schedule next runs this zone."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_translation_key = "next_run"
+
+    def __init__(self, coordinator: RainbirdExtendedCoordinator, zone: int) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, zone, "next_run")
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the start of the next scheduled run."""
+        return self.coordinator.next_run(self._zone)
+
+
+class RainbirdZoneLastRun(RainbirdExtendedZoneEntity, RestoreSensor):
+    """When this zone last started running, and for how long it ran."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_translation_key = "last_run"
+
+    def __init__(self, coordinator: RainbirdExtendedCoordinator, zone: int) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, zone, "last_run")
+        self._restored: ZoneRun | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the last run from before a restart."""
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_state()) is None:
+            return
+        start = dt_util.parse_datetime(last.state)
+        if start is None:
+            return
+        end = last.attributes.get(ATTR_END)
+        self._restored = ZoneRun(
+            start, dt_util.parse_datetime(end) if isinstance(end, str) else None
+        )
+
+    @property
+    def _run(self) -> ZoneRun | None:
+        return self.coordinator.last_runs.get(self._zone) or self._restored
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return when the last run started."""
+        return run.start if (run := self._run) else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return when the last run ended and how long it lasted (seconds)."""
+        run = self._run
+        duration: timedelta | None = run.duration if run else None
+        return {
+            ATTR_END: run.end.isoformat() if run and run.end else None,
+            ATTR_DURATION: round(duration.total_seconds()) if duration else None,
+        }
+
+
+class RainbirdZoneWaterUsed(RainbirdExtendedZoneEntity, RestoreSensor):
+    """Water used by the zone, from its run time and flow rate.
+
+    A total that only increases, so it can be added to the Energy dashboard's
+    water consumption.
+    """
+
+    _attr_device_class = SensorDeviceClass.WATER
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_suggested_display_precision = 1
+    _attr_translation_key = "water_used"
+
+    def __init__(
+        self, coordinator: RainbirdExtendedCoordinator, zone: int, unit: str
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, zone, "water_used")
+        self._attr_native_unit_of_measurement = unit
+        self._attr_native_value = 0.0
+        self._seen_seconds = coordinator.run_seconds.get(zone, 0.0)
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the running total."""
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_sensor_data()) is not None and isinstance(
+            last.native_value, (int, float)
+        ):
+            self._attr_native_value = float(last.native_value)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Add the water used since the last update."""
+        seconds = self.coordinator.run_seconds.get(self._zone, 0.0)
+        if (delta := seconds - self._seen_seconds) > 0:
+            flow = self.coordinator.flow_rates.get(self._zone, 0.0)
+            self._attr_native_value = round(
+                float(self._attr_native_value or 0) + flow * delta / 60, 3
+            )
+        self._seen_seconds = seconds
+        super()._handle_coordinator_update()
+
+
+class RainbirdSeasonalAdjustment(RainbirdExtendedControllerEntity, SensorEntity):
+    """The controller's seasonal adjustment (100% = runtimes as programmed)."""
+
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_translation_key = "seasonal_adjustment"
+
+    def __init__(self, coordinator: RainbirdExtendedCoordinator) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, "seasonal_adjustment")
+
+    @property
+    def available(self) -> bool:
+        """Only available for controllers that report it."""
+        return (
+            super().available
+            and self.coordinator.supports_controller_state is not False
+            and self.coordinator.controller_state is not None
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the seasonal adjustment."""
+        state = self.coordinator.controller_state
+        return state.seasonal_adjust if state else None

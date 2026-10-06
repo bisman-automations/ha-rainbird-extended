@@ -7,11 +7,22 @@ import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from pyrainbird.data import ControllerState, ModelAndVersion
+from pyrainbird.const import DayOfWeek, ProgramFrequency
+from pyrainbird.data import (
+    ControllerState,
+    ModelAndVersion,
+    Program,
+    Schedule,
+    ZoneDuration,
+)
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.rainbird_extended.const import CONF_RAINBIRD_ENTRY_ID, DOMAIN
+from custom_components.rainbird_extended.const import (
+    CONF_DISABLE_RAINBIRD_SWITCHES,
+    CONF_RAINBIRD_ENTRY_ID,
+    DOMAIN,
+)
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
@@ -25,13 +36,34 @@ def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
     """Allow loading custom_components in every test."""
 
 
-def controller_state(remaining: int = 0, station: int = 0) -> ControllerState:
+def schedule() -> Schedule:
+    """Program A: every day at 05:00, zone 1 for 10 min then zone 2 for 15 min."""
+    return Schedule(
+        controller_info=None,
+        programs=[
+            Program(
+                program=0,
+                frequency=ProgramFrequency.CUSTOM,
+                days_of_week=set(DayOfWeek),
+                starts=[datetime.time(5, 0)],
+                durations=[
+                    ZoneDuration(1, datetime.timedelta(minutes=10)),
+                    ZoneDuration(2, datetime.timedelta(minutes=15)),
+                ],
+            )
+        ],
+    )
+
+
+def controller_state(
+    remaining: int = 0, station: int = 0, seasonal: int = 100
+) -> ControllerState:
     """Build a combined controller state response."""
     return ControllerState(
         delay_setting=0,
         sensor_state=0,
         irrigation_state=1,
-        seasonal_adjust=0,
+        seasonal_adjust=seasonal,
         remaining_runtime=remaining,
         active_station=station,
         device_time=datetime.datetime(2026, 10, 6, 12, 0, 0),
@@ -69,6 +101,8 @@ def controller(active_zones: set[int]) -> MagicMock:
     controller.get_combined_controller_state = AsyncMock(
         return_value=controller_state()
     )
+    controller.get_schedule = AsyncMock(side_effect=schedule)
+    controller.set_program = AsyncMock()
     # Behave like the controller: starting a zone makes it the only active one.
     controller.irrigate_zone = AsyncMock(
         side_effect=lambda zone, minutes: (active_zones.clear(), active_zones.add(zone))
@@ -97,8 +131,19 @@ def rainbird_entry(hass: HomeAssistant) -> MockConfigEntry:
 
 
 @pytest.fixture
+def extended_options() -> dict[str, bool]:
+    """Options for the Rain Bird Extended entry.
+
+    Most tests keep the core switches so they can check they stay in sync.
+    """
+    return {CONF_DISABLE_RAINBIRD_SWITCHES: False}
+
+
+@pytest.fixture
 def extended_entry(
-    hass: HomeAssistant, rainbird_entry: MockConfigEntry
+    hass: HomeAssistant,
+    rainbird_entry: MockConfigEntry,
+    extended_options: dict[str, bool],
 ) -> MockConfigEntry:
     """The Rain Bird Extended config entry."""
     entry = MockConfigEntry(
@@ -106,6 +151,7 @@ def extended_entry(
         title="Rain Bird Extended",
         unique_id=rainbird_entry.entry_id,
         data={CONF_RAINBIRD_ENTRY_ID: rainbird_entry.entry_id},
+        options=extended_options,
     )
     entry.add_to_hass(hass)
     return entry

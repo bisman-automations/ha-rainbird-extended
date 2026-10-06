@@ -44,8 +44,14 @@ async def test_diagnostics_idle(
         "model": "ESP-TM2",
         "model_code": "ESP_TM2",
         "firmware": "9.12",
-        "supports_remaining_runtime": None,
+        "supports_remaining_runtime": True,
+        "seasonal_adjust": 100,
+        "max_programs": 3,
     }
+    assert diag["options"] == {"disable_rainbird_switches": False}
+    assert diag["flow_rates"] == {"1": 0.0, "2": 0.0, "3": 0.0}
+    assert diag["last_runs"] == {}
+    assert diag["run_all_zones_active"] is False
     assert diag["zones"] == [1, 2, 3]
     assert diag["linked_zones"] == [1, 2, 3]
     assert diag["active_zones"] == []
@@ -78,3 +84,4 @@ async def test_diagnostics_running(
     assert diag["end_times"]["2"] is not None
     assert set(diag["local_runs"]) == {"2"}
     assert diag["local_runs"]["2"]["end"] == diag["end_times"]["2"]
+    assert diag["last_runs"]["2"]["end"] is None

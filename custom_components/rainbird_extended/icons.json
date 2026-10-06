@@ -1,13 +1,39 @@
 {
   "entity": {
+    "button": {
+      "run_all_zones": {
+        "default": "mdi:sprinkler-variant"
+      },
+      "run_program": {
+        "default": "mdi:play-box-outline"
+      },
+      "stop_irrigation": {
+        "default": "mdi:stop-circle-outline"
+      }
+    },
     "number": {
+      "flow_rate": {
+        "default": "mdi:water-pump"
+      },
       "valve_runtime": {
         "default": "mdi:timer-cog-outline"
       }
     },
     "sensor": {
+      "last_run": {
+        "default": "mdi:history"
+      },
+      "next_run": {
+        "default": "mdi:calendar-clock"
+      },
+      "seasonal_adjustment": {
+        "default": "mdi:sun-snowflake-variant"
+      },
       "time_remaining": {
         "default": "mdi:timer-sand"
+      },
+      "water_used": {
+        "default": "mdi:water"
       }
     },
     "valve": {
@@ -17,6 +43,11 @@
           "open": "mdi:sprinkler-variant"
         }
       }
+    }
+  },
+  "services": {
+    "start_zone": {
+      "service": "mdi:timer-play-outline"
     }
   }
 }

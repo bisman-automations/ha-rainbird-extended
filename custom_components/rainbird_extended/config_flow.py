@@ -6,7 +6,13 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
+)
+from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
@@ -14,13 +20,25 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
-from .const import CONF_RAINBIRD_ENTRY_ID, DOMAIN, RAINBIRD_DOMAIN
+from .const import (
+    CONF_DISABLE_RAINBIRD_SWITCHES,
+    CONF_RAINBIRD_ENTRY_ID,
+    DEFAULT_DISABLE_RAINBIRD_SWITCHES,
+    DOMAIN,
+    RAINBIRD_DOMAIN,
+)
 
 
 class RainbirdExtendedConfigFlow(ConfigFlow, domain=DOMAIN):
     """Pick which Rain Bird controller to extend."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> RainbirdExtendedOptions:
+        """Return the options flow."""
+        return RainbirdExtendedOptions()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -71,6 +89,31 @@ class RainbirdExtendedConfigFlow(ConfigFlow, domain=DOMAIN):
                             mode=SelectSelectorMode.DROPDOWN,
                         )
                     )
+                }
+            ),
+        )
+
+
+class RainbirdExtendedOptions(OptionsFlowWithReload):
+    """Rain Bird Extended options."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_DISABLE_RAINBIRD_SWITCHES,
+                        default=self.config_entry.options.get(
+                            CONF_DISABLE_RAINBIRD_SWITCHES,
+                            DEFAULT_DISABLE_RAINBIRD_SWITCHES,
+                        ),
+                    ): bool
                 }
             ),
         )

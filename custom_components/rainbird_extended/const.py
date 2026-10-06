@@ -29,3 +29,21 @@ CONFIRM_DELAY = timedelta(seconds=10)
 # Ignore drift smaller than this when the controller re-reports the
 # remaining run time, so the end-time sensor does not change every poll.
 END_TIME_TOLERANCE = timedelta(seconds=30)
+
+# Re-ask the controller for its state (seasonal adjust) this often while idle.
+CONTROLLER_STATE_IDLE_REFRESH = timedelta(minutes=30)
+
+# A run tracked by Home Assistant that disappears this long before its end
+# was stopped early (for "Run all zones" this ends the sequence).
+EARLY_STOP_MARGIN = timedelta(seconds=60)
+
+# Option: disable the core Rain Bird zone switches the valves replace.
+CONF_DISABLE_RAINBIRD_SWITCHES = "disable_rainbird_switches"
+DEFAULT_DISABLE_RAINBIRD_SWITCHES = True
+
+# Zone flow rate limits (L/min or gal/min).
+FLOW_RATE_MAX = 500
+FLOW_RATE_STEP = 0.1
+
+SERVICE_START_ZONE = "start_zone"
+ATTR_DURATION = "duration"

@@ -14,20 +14,79 @@
       }
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Rain Bird Extended",
+        "data": {
+          "disable_rainbird_switches": "Disable the Rain Bird zone switches"
+        },
+        "data_description": {
+          "disable_rainbird_switches": "Each zone's valve replaces its Rain Bird switch, so the switches are disabled to avoid having every zone twice (for example in HomeKit). Turn this off to keep both."
+        }
+      }
+    }
+  },
   "entity": {
+    "button": {
+      "run_all_zones": {
+        "name": "Run all zones"
+      },
+      "run_program": {
+        "name": "Run program {program}"
+      },
+      "stop_irrigation": {
+        "name": "Stop irrigation"
+      }
+    },
     "number": {
+      "flow_rate": {
+        "name": "Flow rate"
+      },
       "valve_runtime": {
         "name": "Valve runtime"
       }
     },
     "sensor": {
+      "last_run": {
+        "name": "Last run",
+        "state_attributes": {
+          "duration": {
+            "name": "Duration"
+          },
+          "end": {
+            "name": "End"
+          }
+        }
+      },
+      "next_run": {
+        "name": "Next run"
+      },
+      "seasonal_adjustment": {
+        "name": "Seasonal adjustment"
+      },
       "time_remaining": {
         "name": "Time remaining"
+      },
+      "water_used": {
+        "name": "Water used"
       }
     },
     "valve": {
       "zone": {
         "name": "Valve"
+      }
+    }
+  },
+  "services": {
+    "start_zone": {
+      "name": "Start zone",
+      "description": "Runs a zone once for a set time, without changing its valve runtime.",
+      "fields": {
+        "duration": {
+          "name": "Duration",
+          "description": "How long to run the zone. Rain Bird runs zones in whole minutes."
+        }
       }
     }
   }

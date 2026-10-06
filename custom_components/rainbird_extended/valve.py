@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.valve import (
@@ -25,7 +26,7 @@ async def async_setup_entry(
     """Add a valve for every zone."""
     coordinator = entry.runtime_data
     async_add_entities(
-        RainbirdZoneValve(coordinator, zone) for zone in coordinator.linkable_zones()
+        RainbirdZoneValve(coordinator, zone) for zone in coordinator.linked_zones
     )
 
 
@@ -59,6 +60,12 @@ class RainbirdZoneValve(RainbirdExtendedZoneEntity, ValveEntity):
     async def async_open_valve(self) -> None:
         """Run the zone for its configured runtime."""
         await self.coordinator.async_start_zone(self._zone)
+
+    async def async_start_zone(self, duration: timedelta) -> None:
+        """Run the zone once for the given duration, keeping its valve runtime."""
+        await self.coordinator.async_start_zone(
+            self._zone, int(duration.total_seconds())
+        )
 
     async def async_close_valve(self) -> None:
         """Stop irrigation."""

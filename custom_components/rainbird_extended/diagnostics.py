@@ -37,21 +37,49 @@ async def async_get_config_entry_diagnostics(
             "model": model.model_name if model else None,
             "model_code": model.model_code if model else None,
             "firmware": f"{model.major}.{model.minor}" if model else None,
-            # None = not asked yet (no zone has run since setup),
+            # None = not asked yet,
             # False = controller does not report remaining run time.
             "supports_remaining_runtime": coordinator.supports_controller_state,
+            "seasonal_adjust": (
+                coordinator.controller_state.seasonal_adjust
+                if coordinator.controller_state
+                else None
+            ),
+            "max_programs": coordinator.max_programs,
         },
+        "options": dict(entry.options),
+        "schedule_loaded": bool(coordinator.schedule and coordinator.schedule.data),
         "core_coordinator": {
             "last_update_success": coordinator.rainbird.last_update_success,
             "rain": getattr(coordinator.rainbird.data, "rain", None),
             "rain_delay": getattr(coordinator.rainbird.data, "rain_delay", None),
         },
         "zones": zones,
-        "linked_zones": coordinator.linkable_zones(),
+        "linked_zones": coordinator.linked_zones,
         "active_zones": sorted(coordinator.active_zones),
         "runtimes_seconds": {
             str(zone): coordinator.runtime_for(zone) for zone in zones
         },
+        "flow_rates": {
+            str(zone): coordinator.flow_rates.get(zone, 0.0) for zone in zones
+        },
+        "next_runs": {
+            str(zone): next_run.isoformat()
+            for zone in zones
+            if (next_run := coordinator.next_run(zone))
+        },
+        "last_runs": {
+            str(zone): {
+                "start": run.start.isoformat(),
+                "end": run.end.isoformat() if run.end else None,
+            }
+            for zone, run in sorted(coordinator.last_runs.items())
+        },
+        "run_seconds": {
+            str(zone): round(seconds)
+            for zone, seconds in sorted(coordinator.run_seconds.items())
+        },
+        "run_all_zones_active": coordinator.sequence_running,
         "end_times": {
             str(zone): end.isoformat() if end else None
             for zone, end in sorted(end_times.items())

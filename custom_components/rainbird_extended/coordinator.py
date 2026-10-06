@@ -3,29 +3,41 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
 from typing import TYPE_CHECKING, Any
 
-from pyrainbird.data import ControllerState
+from ical.iter import MergedIterable, SortableItem
+from ical.timespan import Timespan
+from pyrainbird.data import ControllerState, Schedule
 from pyrainbird.exceptions import (
     RainbirdApiException,
     RainbirdCodingException,
     RainbirdDeviceBusyException,
     RainbirdDeviceNackError,
 )
+from pyrainbird.timeline import (
+    ProgramEvent,
+    ProgramId,
+    ProgramTimeline,
+    create_recurrence,
+)
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.debounce import Debouncer
+from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .const import (
     CONFIRM_DELAY,
+    CONTROLLER_STATE_IDLE_REFRESH,
     DOMAIN,
+    EARLY_STOP_MARGIN,
     END_TIME_TOLERANCE,
     RAINBIRD_ATTR_DURATION,
     RAINBIRD_DEFAULT_DURATION_MINUTES,
@@ -34,7 +46,10 @@ from .const import (
 )
 
 if TYPE_CHECKING:
-    from homeassistant.components.rainbird.coordinator import RainbirdUpdateCoordinator
+    from homeassistant.components.rainbird.coordinator import (
+        RainbirdScheduleUpdateCoordinator,
+        RainbirdUpdateCoordinator,
+    )
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,16 +63,30 @@ class _LocalRun:
     seen_active: bool = False
 
 
+@dataclass
+class ZoneRun:
+    """The current or most recent run of a zone, however it was started."""
+
+    start: datetime
+    end: datetime | None = None
+
+    @property
+    def duration(self) -> timedelta | None:
+        """How long the run lasted (None while it is still running)."""
+        return None if self.end is None else self.end - self.start
+
+
 # zone number -> when the current run is expected to end (None if unknown)
 type ZoneEndTimes = dict[int, datetime | None]
 
 
 class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
-    """Compute when each running zone will finish.
+    """Compute when each running zone will finish, and track runs.
 
     This coordinator does not poll on its own schedule. It refreshes whenever the
     core Rain Bird coordinator refreshes (about once a minute) and after a zone is
-    started from here, and only talks to the controller while a zone is running.
+    started from here. It talks to the controller while a zone is running, and
+    every 30 minutes while idle to keep the seasonal adjustment current.
     """
 
     config_entry: ConfigEntry
@@ -84,7 +113,12 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         # Kept to notice when the core entry reloads and replaces it.
         self.rainbird_data = rainbird_data
         self.rainbird: RainbirdUpdateCoordinator = rainbird_data.coordinator
+        self.schedule: RainbirdScheduleUpdateCoordinator | None = getattr(
+            rainbird_data, "schedule_coordinator", None
+        )
         self.controller = rainbird_data.controller
+        model = getattr(rainbird_data, "model_info", None)
+        self.max_programs: int = model.model_info.max_programs if model else 0
         # Rain Bird controllers handle one request at a time. Share the core
         # integration's lock when it has one so we never poll concurrently.
         self._device_lock: asyncio.Lock = (
@@ -92,10 +126,27 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         )
         # None = not probed yet, False = controller NACKs the request.
         self._supports_controller_state: bool | None = None
+        self.controller_state: ControllerState | None = None
+        self._controller_state_at: datetime | None = None
         # Runs started from Home Assistant, by zone.
         self._started: dict[int, _LocalRun] = {}
         # zone -> runtime in seconds, kept in sync by the number entities.
         self.runtimes: dict[int, int] = {}
+        # zone -> flow rate per minute, kept in sync by the number entities.
+        self.flow_rates: dict[int, float] = {}
+        # Zones whose core Rain Bird device exists, set up once.
+        self.linked_zones: list[int] = []
+        # Run tracking (any source).
+        self.last_runs: dict[int, ZoneRun] = {}
+        # zone -> seconds the zone has run since Home Assistant started.
+        self.run_seconds: dict[int, float] = {}
+        self._prev_running: set[int] = set()
+        self._prev_end_times: ZoneEndTimes = {}
+        self._last_tick: datetime | None = None
+        # "Run all zones" sequence.
+        self._sequence: list[int] = []
+        self._sequence_zone: int | None = None
+        self._sequence_unsub: CALLBACK_TYPE | None = None
 
     @property
     def rainbird_unique_id(self) -> str | None:
@@ -107,22 +158,6 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         """All zones known to the controller."""
         return set(self.rainbird.data.zones) if self.rainbird.data else set()
 
-    def linkable_zones(self) -> list[int]:
-        """Zones whose core Rain Bird device exists, in order."""
-        from .entity import find_zone_device  # noqa: PLC0415
-
-        zones = []
-        for zone in sorted(self.zones):
-            if find_zone_device(
-                self.hass,
-                self.rainbird_entry.entry_id,
-                f"{self.rainbird_unique_id}-{zone}",
-            ):
-                zones.append(zone)
-            else:
-                _LOGGER.warning("No Rain Bird device found for zone %s; skipping", zone)
-        return zones
-
     @property
     def supports_controller_state(self) -> bool | None:
         """Whether the controller reports remaining run time (None = unknown)."""
@@ -132,6 +167,27 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
     def local_runs(self) -> dict[int, _LocalRun]:
         """Runs started from Home Assistant that are still being tracked."""
         return dict(self._started)
+
+    @property
+    def sequence_running(self) -> bool:
+        """Whether "Run all zones" is in progress."""
+        return self._sequence_zone is not None
+
+    def linkable_zones(self) -> list[int]:
+        """Zones whose core Rain Bird device exists, in order."""
+        from .entity import find_device  # noqa: PLC0415
+
+        zones = []
+        for zone in sorted(self.zones):
+            if find_device(
+                self.hass,
+                self.rainbird_entry.entry_id,
+                f"{self.rainbird_unique_id}-{zone}",
+            ):
+                zones.append(zone)
+            else:
+                _LOGGER.warning("No Rain Bird device found for zone %s; skipping", zone)
+        return zones
 
     @property
     def active_zones(self) -> set[int]:
@@ -152,10 +208,22 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
 
     @callback
     def async_start(self) -> None:
-        """Follow the core coordinator so our data refreshes with it."""
+        """Follow the core coordinators so our data refreshes with them."""
         self.config_entry.async_on_unload(
             self.rainbird.async_add_listener(self._handle_rainbird_update)
         )
+        if self.schedule is not None and self.max_programs:
+            # Listening also makes the core coordinator poll the schedule.
+            self.config_entry.async_on_unload(
+                self.schedule.async_add_listener(self.async_update_listeners)
+            )
+            if self.schedule.data is None:
+                self.config_entry.async_create_background_task(
+                    self.hass,
+                    self.schedule.async_request_refresh(),
+                    f"{DOMAIN} schedule",
+                )
+        self.config_entry.async_on_unload(self._cancel_sequence)
 
     @callback
     def _handle_rainbird_update(self) -> None:
@@ -167,10 +235,23 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
     async def _async_update_data(self) -> ZoneEndTimes:
         """Work out the expected end time for each running zone."""
         active = self.active_zones
+        now = dt_util.utcnow()
         controller_state: ControllerState | None = None
-        if active and self._supports_controller_state is not False:
-            controller_state = await self._async_fetch_controller_state()
-        return self._compute_end_times(active, controller_state)
+        if self._supports_controller_state is not False:
+            if active:
+                controller_state = await self._async_fetch_controller_state()
+            elif (
+                self._controller_state_at is None
+                or now - self._controller_state_at > CONTROLLER_STATE_IDLE_REFRESH
+            ):
+                # Only for the seasonal adjustment; never fail the update.
+                try:
+                    await self._async_fetch_controller_state()
+                except UpdateFailed as err:
+                    _LOGGER.debug("Could not read controller state: %s", err)
+        end_times = self._compute_end_times(active, controller_state)
+        self._track_runs(end_times)
+        return end_times
 
     async def _async_fetch_controller_state(self) -> ControllerState | None:
         """Ask the controller how long the running zone has left."""
@@ -194,6 +275,8 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         except RainbirdApiException as err:
             raise UpdateFailed(f"Rain Bird controller error: {err}") from err
         self._supports_controller_state = True
+        self.controller_state = state
+        self._controller_state_at = dt_util.utcnow()
         return state
 
     def _compute_end_times(
@@ -215,6 +298,9 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                     run.seen_active = True
             elif run.seen_active or now - run.started_at > START_GRACE_PERIOD:
                 del self._started[zone]
+                if zone == self._sequence_zone and now < run.end - EARLY_STOP_MARGIN:
+                    _LOGGER.debug("Zone %s stopped early; ending run all zones", zone)
+                    self._cancel_sequence()
 
         reported: dict[int, datetime] = {}
         if controller_state is not None and controller_state.remaining_runtime > 0:
@@ -243,8 +329,83 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             result[zone] = end
         return result
 
-    async def async_start_zone(self, zone: int, seconds: int | None = None) -> None:
+    def _track_runs(self, end_times: ZoneEndTimes) -> None:
+        """Record run starts, stops and time spent running, from any source."""
+        now = dt_util.utcnow()
+        running = set(end_times)
+        if self._last_tick is not None:
+            for zone in self._prev_running:
+                until = now
+                if zone not in running:
+                    # Stopped since the last update. If it was due to end in
+                    # between, it ran until then rather than until now.
+                    prev_end = self._prev_end_times.get(zone)
+                    if prev_end is not None and prev_end < now:
+                        until = max(prev_end, self._last_tick)
+                    if (run := self.last_runs.get(zone)) and run.end is None:
+                        run.end = until
+                self.run_seconds[zone] = (
+                    self.run_seconds.get(zone, 0.0)
+                    + (until - self._last_tick).total_seconds()
+                )
+        for zone in running - self._prev_running:
+            local = self._started.get(zone)
+            self.last_runs[zone] = ZoneRun(local.started_at if local else now)
+        self._prev_running = running
+        self._prev_end_times = dict(end_times)
+        self._last_tick = now
+
+    def next_run(self, zone: int) -> datetime | None:
+        """When the controller's schedule next runs this zone."""
+        if self.schedule is None or not isinstance(self.schedule.data, Schedule):
+            return None
+        schedule = self.schedule.data
+        now = dt_util.now()
+        iters: list[Iterable[SortableItem[Timespan, ProgramEvent]]] = []
+        for program in schedule.programs:
+            # Zones in a program run one after another, in zone order.
+            offset = timedelta()
+            duration: timedelta | None = None
+            for zone_duration in program.durations:
+                if zone_duration.zone == zone:
+                    duration = zone_duration.duration
+                    break
+                offset += zone_duration.duration
+            if not duration:
+                continue
+            for start in program.starts:
+                dtstart = (
+                    now.replace(
+                        hour=start.hour, minute=start.minute, second=0, microsecond=0
+                    )
+                    + offset
+                )
+                iters.append(
+                    create_recurrence(
+                        ProgramId(program.program, zone),
+                        program.frequency,
+                        dtstart,
+                        duration,
+                        program.synchro or 0,
+                        program.days_of_week,
+                        program.period or 0,
+                        delay_days=schedule.delay_days,
+                    )
+                )
+        for zone_schedule in schedule.zone_schedules.values():
+            if zone_schedule.zone == zone:
+                iters.extend(zone_schedule.timeline_iters(now.tzinfo))
+        if not iters:
+            return None
+        event = next(ProgramTimeline(MergedIterable(iters)).start_after(now), None)
+        return dt_util.as_utc(event.start) if event else None
+
+    async def async_start_zone(
+        self, zone: int, seconds: int | None = None, *, _sequence: bool = False
+    ) -> None:
         """Run a zone for its configured runtime (or the given seconds)."""
+        if not _sequence:
+            self._cancel_sequence()
         seconds = self.runtime_for(zone) if seconds is None else seconds
         minutes = max(1, round(seconds / 60))
         await self._async_command(self.controller.irrigate_zone, zone, minutes)
@@ -254,11 +415,70 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
 
     async def async_stop(self) -> None:
         """Stop all irrigation (Rain Bird can't stop a single zone)."""
+        self._cancel_sequence()
         await self._async_command(self.controller.stop_irrigation)
         self._started.clear()
         self._optimistic_active(set())
 
-    async def _async_command(self, func: Any, *args: Any) -> None:
+    async def async_run_program(self, program: int) -> None:
+        """Start one of the controller's programs (0 = A)."""
+        self._cancel_sequence()
+        await self._async_command(self.controller.set_program, program)
+        self._started.clear()
+        self.config_entry.async_create_background_task(
+            self.hass, self.rainbird.async_request_refresh(), f"{DOMAIN} confirm"
+        )
+
+    async def async_run_all_zones(self) -> None:
+        """Run every zone once, in order, each for its valve runtime."""
+        self._cancel_sequence()
+        zones = list(self.linked_zones)
+        if not zones:
+            raise HomeAssistantError("No zones to run")
+        self._sequence = zones
+        await self._async_sequence_next()
+
+    async def _async_sequence_next(self) -> None:
+        if not self._sequence:
+            self._cancel_sequence()
+            return
+        zone = self._sequence.pop(0)
+        self._sequence_zone = zone
+        try:
+            await self.async_start_zone(zone, _sequence=True)
+        except HomeAssistantError:
+            self._cancel_sequence()
+            raise
+        end = self._started[zone].end
+
+        @callback
+        def _next(_now: datetime) -> None:
+            self._sequence_unsub = None
+            self.config_entry.async_create_background_task(
+                self.hass, self._async_sequence_step(), f"{DOMAIN} run all zones"
+            )
+
+        self._sequence_unsub = async_track_point_in_utc_time(self.hass, _next, end)
+        self.async_update_listeners()
+
+    async def _async_sequence_step(self) -> None:
+        try:
+            await self._async_sequence_next()
+        except HomeAssistantError as err:
+            _LOGGER.warning("Run all zones stopped: %s", err)
+
+    @callback
+    def _cancel_sequence(self) -> None:
+        was_running = self.sequence_running
+        if self._sequence_unsub is not None:
+            self._sequence_unsub()
+            self._sequence_unsub = None
+        self._sequence = []
+        self._sequence_zone = None
+        if was_running:
+            self.async_update_listeners()
+
+    async def _async_command(self, func: Callable[..., Any], *args: Any) -> None:
         if self.rainbird_entry.state is not ConfigEntryState.LOADED:
             raise HomeAssistantError("The Rain Bird integration is not loaded")
         try:
@@ -280,9 +500,9 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         if self.rainbird.data is not None:
             self.rainbird.data.active_zones.clear()
             self.rainbird.data.active_zones.update(active)
-        self.async_set_updated_data(
-            self._compute_end_times(active, None) if active else {}
-        )
+        end_times = self._compute_end_times(active, None) if active else {}
+        self._track_runs(end_times)
+        self.async_set_updated_data(end_times)
         self.rainbird.async_update_listeners()
         self.config_entry.async_create_background_task(
             self.hass, self.rainbird.async_request_refresh(), f"{DOMAIN} confirm"
