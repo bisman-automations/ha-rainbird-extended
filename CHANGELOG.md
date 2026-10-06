@@ -23,9 +23,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dashboard's water consumption.
 - **Run program** buttons (one per program), **Run all zones** and **Stop
   irrigation** buttons on the controller.
-- **Seasonal adjustment** per program (10–200%), adjustable from Home Assistant,
-  using the controller's water budget. Models without water budgets get a
-  read-only sensor instead.
+- **Seasonal adjustment** per program (10–200%) from the controller's water
+  budget. Read-only with Home Assistant 2026.9 (pyrainbird 6.5); adjustable
+  once Home Assistant ships pyrainbird 6.6 or newer. Models without water
+  budgets get a read-only sensor from the controller state instead.
+- Bug report and feature request forms.
+- **Irrigating** binary sensor on the controller: on while any zone runs, with
+  the running zones and end time.
+- **Rain skip**: choose a weather entity in the options to get a Rain skip
+  switch that sets the controller's rain delay when today's forecast is wet
+  enough (chance of rain threshold, check time and delay days configurable).
+- Time remaining for controllers that don't report it (such as the ARC8),
+  worked out from the controller's schedule for scheduled runs and programs
+  started from Home Assistant.
 - `rainbird_extended.start_zone` action to run a zone once for a set time.
 - Option to disable the core Rain Bird zone switches the valves replace.
 

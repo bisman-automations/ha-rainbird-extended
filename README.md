@@ -34,7 +34,9 @@ devices, no second connection to the controller.
 | Run program A, B, … | `button.rain_bird_controller_run_program_a` | Starts one of the controller's programs. One button per program the model supports. |
 | Run all zones | `button.rain_bird_controller_run_all_zones` | Runs every zone once, in order, each for its valve runtime. |
 | Stop irrigation | `button.rain_bird_controller_stop_irrigation` | Stops whatever is running, including Run all zones. |
-| Seasonal adjustment A, B, … | `number.rain_bird_controller_seasonal_adjustment_a` | Each program's seasonal adjust, 10–200% (100% = runtimes as programmed). Change it here or in the Rain Bird app; re-read every 30 minutes. Controllers with one controller-wide value (ESP-RZXe, ST8) get a single **Seasonal adjustment**. Models without water budgets get a read-only sensor instead. |
+| Seasonal adjustment A, B, … | `number.rain_bird_controller_seasonal_adjustment_a` | Each program's seasonal adjust, 10–200% (100% = runtimes as programmed), re-read every 30 minutes. Controllers with one controller-wide value (ESP-RZXe, ST8) get a single **Seasonal adjustment**. See [Seasonal adjustment](#seasonal-adjustment). |
+| Irrigating | `binary_sensor.rain_bird_controller_irrigating` | On while any zone runs, however it was started. Attributes: `zones`, `end`, `run_all_zones`. |
+| Rain skip | `switch.rain_bird_controller_rain_skip` | Only with a weather entity chosen in the options. See [Rain skip](#rain-skip). |
 
 ### Action: `rainbird_extended.start_zone`
 
@@ -59,6 +61,27 @@ removing Rain Bird Extended re-enables the ones it disabled.
 
 The valves map directly onto HomeKit's irrigation valve characteristics
 (Active, In Use, Set Duration, Remaining Duration).
+
+### Rain skip
+
+Choose a weather entity in Rain Bird Extended's options to get a **Rain skip**
+switch. While it's on, each day at the check time (default 04:00 — pick a time
+before your programs start) it looks at today's daily forecast. If the chance
+of rain is at least your threshold (default 60%), or the forecast has no
+chance of rain but its condition is rainy, it sets the controller's rain delay
+(default 1 day). It never shortens a longer rain delay that's already set.
+Each skip fires a `rainbird_extended_rain_skip` event, and the switch's
+attributes show the last check, chance of rain and skip.
+
+### Seasonal adjustment
+
+Read from the controller's water budget. With Home Assistant 2026.9, whose
+Rain Bird library can read but not change it, each program's seasonal
+adjustment is a read-only **sensor** (`sensor.…_seasonal_adjustment_a`). Once
+Home Assistant ships pyrainbird 6.6 or newer, it becomes an adjustable
+**number** (`number.…_seasonal_adjustment_a`) automatically, and the old
+sensors can be deleted. Controllers without water budgets show a single
+read-only sensor from the controller state, if they report it.
 
 ## Requirements
 
@@ -121,9 +144,12 @@ so you don't get each zone twice; the switches are disabled by default.
   switch): asked from the controller each minute while a zone is running,
   using the combined controller state command. The controller reports this
   as seconds remaining for the active station.
-- Controllers that don't support that command are detected once and not asked
-  again; for them time remaining is only known for runs started from these
-  valves.
+- Controllers that don't support that command (the ARC8, for example) are
+  detected once and not asked again. For them, time remaining comes from the
+  controller's schedule: a zone running during one of its scheduled runs, or
+  during a program started with a **Run program** button, ends when that run
+  should, with runtimes scaled by the program's seasonal adjustment. Runs
+  started from the Rain Bird app or the core switch stay unknown.
 
 ## Things to know
 
