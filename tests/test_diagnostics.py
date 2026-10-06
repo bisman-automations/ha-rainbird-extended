@@ -48,6 +48,7 @@ async def test_diagnostics_idle(
         "seasonal_adjust": None,
         "max_programs": 3,
         "supports_water_budget": True,
+        "can_set_water_budget": True,
         "water_budgets": {"0": 100, "1": 100, "2": 100},
     }
     assert diag["options"] == {"disable_rainbird_switches": False}

@@ -17,7 +17,6 @@ from . import RainbirdExtendedConfigEntry
 from .const import (
     FLOW_RATE_MAX,
     FLOW_RATE_STEP,
-    LCR_BUDGET,
     RUNTIME_MAX_SECONDS,
     RUNTIME_MIN_SECONDS,
     RUNTIME_STEP_SECONDS,
@@ -27,6 +26,7 @@ from .coordinator import RainbirdExtendedCoordinator
 from .entity import (
     RainbirdExtendedControllerEntity,
     RainbirdExtendedZoneEntity,
+    water_budget_naming,
     water_units,
 )
 
@@ -47,7 +47,7 @@ async def async_setup_entry(
             RainbirdZoneFlowRate(coordinator, zone, flow_unit),
         )
     ]
-    if coordinator.supports_water_budget:
+    if coordinator.supports_water_budget and coordinator.can_set_water_budget:
         entities.extend(
             RainbirdSeasonalAdjustment(coordinator, key)
             for key in coordinator.water_budget_keys
@@ -145,14 +145,10 @@ class RainbirdSeasonalAdjustment(RainbirdExtendedControllerEntity, NumberEntity)
 
     def __init__(self, coordinator: RainbirdExtendedCoordinator, key: int) -> None:
         """Initialize the number."""
-        if key == LCR_BUDGET:
-            super().__init__(coordinator, "seasonal_adjustment")
-            self._attr_translation_key = "seasonal_adjustment"
-        else:
-            letter = chr(ord("A") + key)
-            super().__init__(coordinator, f"seasonal_adjustment_{letter.lower()}")
-            self._attr_translation_key = "seasonal_adjustment_program"
-            self._attr_translation_placeholders = {"program": letter}
+        unique_key, translation_key, placeholders = water_budget_naming(key)
+        super().__init__(coordinator, unique_key)
+        self._attr_translation_key = translation_key
+        self._attr_translation_placeholders = placeholders
         self._key = key
         self._attr_native_max_value = coordinator.max_seasonal_adjust
 

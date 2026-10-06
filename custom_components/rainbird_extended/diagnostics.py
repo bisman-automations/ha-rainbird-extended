@@ -47,6 +47,7 @@ async def async_get_config_entry_diagnostics(
             ),
             "max_programs": coordinator.max_programs,
             "supports_water_budget": coordinator.supports_water_budget,
+            "can_set_water_budget": coordinator.can_set_water_budget,
             "water_budgets": {
                 str(key): value
                 for key, value in sorted(coordinator.water_budgets.items())

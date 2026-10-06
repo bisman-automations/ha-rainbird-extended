@@ -9,7 +9,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
-from .const import RAINBIRD_DOMAIN
+from .const import LCR_BUDGET, RAINBIRD_DOMAIN
 from .coordinator import RainbirdExtendedCoordinator
 
 
@@ -82,6 +82,18 @@ def find_device(
         # Home Assistant 2026.9+: identifiers are scoped to a config entry.
         return registry.async_get_device_by_identifier(identifier, rainbird_entry_id)
     return registry.async_get_device(identifiers={identifier})
+
+
+def water_budget_naming(key: int) -> tuple[str, str, dict[str, str]]:
+    """Unique id key, translation key and placeholders for a seasonal adjust."""
+    if key == LCR_BUDGET:
+        return "seasonal_adjustment", "seasonal_adjustment", {}
+    letter = chr(ord("A") + key)
+    return (
+        f"seasonal_adjustment_{letter.lower()}",
+        "seasonal_adjustment_program",
+        {"program": letter},
+    )
 
 
 def water_units(hass: HomeAssistant) -> tuple[str, str]:

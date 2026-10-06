@@ -95,6 +95,9 @@
       "seasonal_adjustment": {
         "name": "Seasonal adjustment"
       },
+      "seasonal_adjustment_program": {
+        "name": "Seasonal adjustment {program}"
+      },
       "time_remaining": {
         "name": "Time remaining"
       },

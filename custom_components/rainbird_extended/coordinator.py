@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from ical.iter import MergedIterable, SortableItem
 from ical.timespan import Timespan
-from pyrainbird.data import ControllerState, Feature, Program, Schedule
+from pyrainbird.data import ControllerState, Program, Schedule
 from pyrainbird.exceptions import (
     RainbirdApiException,
     RainbirdCodingException,
@@ -120,16 +120,18 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         )
         self.controller = rainbird_data.controller
         model = getattr(rainbird_data, "model_info", None)
-        self.max_programs: int = model.model_info.max_programs if model else 0
-        self.supports_water_budget: bool = bool(
-            model and model.model_info.supports_water_budget
+        # Works with pyrainbird 6.5 (Home Assistant 2026.9) and newer.
+        info = model.model_info if model else None
+        self.max_programs: int = info.max_programs if info else 0
+        self.supports_water_budget: bool = bool(info and info.supports_water_budget)
+        # Program-based controllers have a seasonal adjust per program; the
+        # others (LCR: ESP-RZXe, ST8) have one for the whole controller.
+        self.program_based: bool = self.max_programs > 0
+        self.max_seasonal_adjust: int = getattr(
+            getattr(info, "limits", None), "max_seasonal_adjust", 200
         )
-        self.program_based: bool = bool(
-            model and model.model_info.is_feature_supported(Feature.PROGRAM_BASED)
-        )
-        self.max_seasonal_adjust: int = (
-            model.model_info.limits.max_seasonal_adjust if model else 200
-        )
+        # Setting it needs pyrainbird 6.6 or newer.
+        self.can_set_water_budget: bool = hasattr(self.controller, "set_water_budget")
         # Seasonal adjust (%) by program index, or LCR_BUDGET for LCR controllers.
         self.water_budgets: dict[int, int] = {}
         self._water_budgets_at: datetime | None = None

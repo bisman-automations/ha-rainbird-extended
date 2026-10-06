@@ -225,6 +225,27 @@ async def test_seasonal_adjustment(
     assert hass.states.get(SEASONAL_A).state == "120"
 
 
+async def test_seasonal_adjustment_read_only(
+    hass: HomeAssistant,
+    controller: MagicMock,
+    mock_rainbird: MagicMock,
+    rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
+) -> None:
+    """With pyrainbird 6.5 (no set_water_budget) it's shown read-only."""
+    del controller.set_water_budget
+    assert await hass.config_entries.async_setup(rainbird_entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(extended_entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(SEASONAL_A) is None
+    state = hass.states.get("sensor.rain_bird_controller_seasonal_adjustment_a")
+    assert state.state == "100"
+    assert state.attributes["unit_of_measurement"] == "%"
+    await hass.config_entries.async_unload(extended_entry.entry_id)
+    await hass.config_entries.async_unload(rainbird_entry.entry_id)
+
+
 async def test_seasonal_adjustment_without_water_budget(
     hass: HomeAssistant,
     controller: MagicMock,

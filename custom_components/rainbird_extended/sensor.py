@@ -22,6 +22,7 @@ from .coordinator import RainbirdExtendedCoordinator, ZoneRun
 from .entity import (
     RainbirdExtendedControllerEntity,
     RainbirdExtendedZoneEntity,
+    water_budget_naming,
     water_units,
 )
 
@@ -41,6 +42,12 @@ async def async_setup_entry(
     if not coordinator.supports_water_budget:
         # Read-only fallback from the controller state for older models.
         entities.append(RainbirdSeasonalAdjustment(coordinator))
+    elif not coordinator.can_set_water_budget:
+        # pyrainbird too old to change it: show it read-only.
+        entities.extend(
+            RainbirdWaterBudget(coordinator, key)
+            for key in coordinator.water_budget_keys
+        )
     for zone in coordinator.linked_zones:
         entities.extend(
             (
@@ -203,3 +210,28 @@ class RainbirdSeasonalAdjustment(RainbirdExtendedControllerEntity, SensorEntity)
         """Return the seasonal adjustment."""
         state = self.coordinator.controller_state
         return state.seasonal_adjust if state else None
+
+
+class RainbirdWaterBudget(RainbirdExtendedControllerEntity, SensorEntity):
+    """A program's seasonal adjustment, read-only."""
+
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: RainbirdExtendedCoordinator, key: int) -> None:
+        """Initialize the sensor."""
+        unique_key, translation_key, placeholders = water_budget_naming(key)
+        super().__init__(coordinator, unique_key)
+        self._attr_translation_key = translation_key
+        self._attr_translation_placeholders = placeholders
+        self._key = key
+
+    @property
+    def available(self) -> bool:
+        """Available once the controller has reported the value."""
+        return super().available and self._key in self.coordinator.water_budgets
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the seasonal adjustment."""
+        return self.coordinator.water_budgets.get(self._key)

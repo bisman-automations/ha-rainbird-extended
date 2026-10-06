@@ -43,6 +43,9 @@
       "seasonal_adjustment": {
         "default": "mdi:sun-snowflake-variant"
       },
+      "seasonal_adjustment_program": {
+        "default": "mdi:sun-snowflake-variant"
+      },
       "time_remaining": {
         "default": "mdi:timer-sand"
       },
