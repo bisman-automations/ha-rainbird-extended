@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Tested against both Home Assistant 2026.9 (pyrainbird 6.5) and 2026.10
+  (pyrainbird 6.6). With 2026.10, seasonal adjustment is adjustable.
+
 ## [1.3.0] - 2026-10-07
 
 ### Added

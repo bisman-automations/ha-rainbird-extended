@@ -156,17 +156,17 @@ attributes show the last check, chance of rain and skip.
 
 ### Seasonal adjustment
 
-Read from the controller's water budget. With Home Assistant 2026.9, whose
-Rain Bird library can read but not change it, each program's seasonal
-adjustment is a read-only **sensor** (`sensor.…_seasonal_adjustment_a`). Once
-Home Assistant ships pyrainbird 6.6 or newer, it becomes an adjustable
-**number** (`number.…_seasonal_adjustment_a`) automatically, and the old
-sensors are removed. Controllers without water budgets show a single
-read-only sensor from the controller state, if they report it.
+Read from the controller's water budget. On Home Assistant 2026.10 and newer
+each program's seasonal adjustment is an adjustable **number**
+(`number.…_seasonal_adjustment_a`, 10–200%). Home Assistant 2026.9's Rain Bird
+library can read it but not change it, so there it's a read-only **sensor**
+(`sensor.…_seasonal_adjustment_a`); after upgrading Home Assistant the sensors
+are replaced by the numbers automatically. Controllers without water budgets
+show a single read-only sensor from the controller state, if they report it.
 
 ## Requirements
 
-- Home Assistant 2026.9 or newer (developed and tested against 2026.9.4)
+- Home Assistant 2026.9 or newer (tested against 2026.9 and 2026.10)
 - The core **Rain Bird** integration set up for your controller
 
 ## Install

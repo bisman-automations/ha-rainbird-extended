@@ -10,13 +10,25 @@ permissions:
 
 jobs:
   tests:
+    name: tests (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # requirements_test.txt: current Home Assistant.
+          - name: current
+          # Oldest supported Home Assistant (hacs.json) and its pyrainbird.
+          - name: HA 2026.9
+            pins: pytest-homeassistant-custom-component==0.13.367 pyrainbird==6.5.0
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - run: pip install -r requirements_test.txt
+      - run: pip install --pre -r requirements_test.txt
+      - if: matrix.pins
+        run: pip install --pre ${{ matrix.pins }}
       - run: ruff check . && ruff format --check .
       - run: pytest
 
