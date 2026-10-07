@@ -55,4 +55,5 @@ class RainbirdIrrigating(RainbirdExtendedControllerEntity, BinarySensorEntity):
             "run_all_zones": self.coordinator.sequence_running
             and not self.coordinator.blowout_running,
             "blowout": self.coordinator.blowout_running,
+            "paused": self.coordinator.paused_source,
         }

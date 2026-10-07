@@ -9,14 +9,10 @@ from freezegun.api import FrozenDateTimeFactory
 from pyrainbird.data import WaterBudget
 from pyrainbird.exceptions import RainbirdDeviceNackError
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-)
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.rainbird_extended.config_flow import nest
 from custom_components.rainbird_extended.const import CONF_DISABLE_RAINBIRD_SWITCHES
-from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.components.number import (
     ATTR_VALUE,
     DOMAIN as NUMBER_DOMAIN,
@@ -30,7 +26,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .conftest import controller_state
-from .test_entities import _poll_core
+from .helpers import _advance, _poll_core, _press
 
 VALVE = "valve.rain_bird_sprinkler_2"
 SWITCH = "switch.rain_bird_sprinkler_2"
@@ -44,21 +40,6 @@ SEASONAL_SENSOR = "sensor.rain_bird_controller_seasonal_adjustment"
 RUN_ALL = "button.rain_bird_controller_run_all_zones"
 STOP = "button.rain_bird_controller_stop_irrigation"
 PROGRAM_B = "button.rain_bird_controller_run_program_b"
-
-
-async def _press(hass: HomeAssistant, entity_id: str) -> None:
-    await hass.services.async_call(
-        BUTTON_DOMAIN, SERVICE_PRESS, {ATTR_ENTITY_ID: entity_id}, blocking=True
-    )
-    await hass.async_block_till_done()
-
-
-async def _advance(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, delta: timedelta
-) -> None:
-    freezer.tick(delta)
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done()
 
 
 @pytest.mark.parametrize("extended_options", [{}])

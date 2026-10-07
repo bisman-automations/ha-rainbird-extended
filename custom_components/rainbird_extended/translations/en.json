@@ -62,7 +62,7 @@
             },
             "data_description": {
               "weather_entity": "Pick a weather entity to add the Rain skip, Freeze skip and Weather adjustment switches.",
-              "rain_check_time": "Rain skip, freeze skip and weather adjustment all check at this time each day. Pick a time before your programs start."
+              "rain_check_time": "Rain, freeze and soil moisture skip and weather adjustment all check at this time each day. Pick a time before your programs start."
             }
           },
           "rain_skip_section": {
@@ -89,6 +89,19 @@
               "freeze_temperature": "Compared with today's forecast low and the temperature sensor.",
               "freeze_sensor": "An outdoor temperature sensor. With one, freeze skip works without a weather forecast too.",
               "freeze_delay_days": "Only raised, never shortened, if a longer rain delay is already set."
+            }
+          },
+          "moisture_skip_section": {
+            "name": "Soil moisture skip",
+            "description": "Sets the controller's rain delay when a soil moisture sensor says the ground is already wet. Checked daily at the check time in Weather.",
+            "data": {
+              "moisture_sensor": "Soil moisture sensor",
+              "moisture_threshold": "Skip at or above",
+              "moisture_delay_days": "Rain delay to set (days)"
+            },
+            "data_description": {
+              "moisture_sensor": "Adds a Soil moisture skip switch.",
+              "moisture_delay_days": "Only raised, never shortened, if a longer rain delay is already set."
             }
           },
           "weather_adjustment_section": {
@@ -125,6 +138,14 @@
           },
           "blowout": {
             "name": "Blowout"
+          },
+          "paused": {
+            "name": "Paused",
+            "state": {
+              "run_all_zones": "Run all zones",
+              "blowout": "Blowout",
+              "home_assistant": "Cycle and soak"
+            }
           }
         }
       }
@@ -141,6 +162,12 @@
       },
       "blowout": {
         "name": "Blowout sprinklers"
+      },
+      "pause": {
+        "name": "Pause"
+      },
+      "resume": {
+        "name": "Resume"
       }
     },
     "event": {
@@ -281,11 +308,39 @@
             "name": "Last seasonal adjustment"
           }
         }
+      },
+      "moisture_skip": {
+        "name": "Soil moisture skip",
+        "state_attributes": {
+          "moisture_sensor": {
+            "name": "Soil moisture sensor"
+          },
+          "moisture_threshold": {
+            "name": "Skip at or above"
+          },
+          "check_time": {
+            "name": "Check time"
+          },
+          "last_check": {
+            "name": "Last check"
+          },
+          "last_moisture": {
+            "name": "Last moisture"
+          },
+          "last_skipped": {
+            "name": "Last skipped"
+          }
+        }
       }
     },
     "valve": {
       "zone": {
         "name": "Valve"
+      }
+    },
+    "calendar": {
+      "run_history": {
+        "name": "Run history"
       }
     }
   },

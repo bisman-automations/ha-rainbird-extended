@@ -124,6 +124,14 @@ TEMPERATURE_DEFAULTS: dict[str, dict[str, float]] = {
     },
 }
 
+# Soil moisture skip: a rain delay when the soil is already wet.
+CONF_MOISTURE_SENSOR = "moisture_sensor"
+CONF_MOISTURE_THRESHOLD = "moisture_threshold"
+CONF_MOISTURE_DELAY_DAYS = "moisture_delay_days"
+DEFAULT_MOISTURE_THRESHOLD = 40
+DEFAULT_MOISTURE_DELAY_DAYS = 1
+EVENT_MOISTURE_SKIP = f"{DOMAIN}_moisture_skip"
+
 # Option form sections.
 SECTION_RUN_ALL_ZONES = "run_all_zones_section"
 SECTION_BLOWOUT = "blowout_section"
@@ -131,3 +139,4 @@ SECTION_WEATHER = "weather_section"
 SECTION_RAIN_SKIP = "rain_skip_section"
 SECTION_FREEZE_SKIP = "freeze_skip_section"
 SECTION_WEATHER_ADJUSTMENT = "weather_adjustment_section"
+SECTION_MOISTURE_SKIP = "moisture_skip_section"

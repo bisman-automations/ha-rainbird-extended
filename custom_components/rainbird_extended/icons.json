@@ -20,6 +20,12 @@
       },
       "blowout": {
         "default": "mdi:weather-windy"
+      },
+      "pause": {
+        "default": "mdi:pause-circle-outline"
+      },
+      "resume": {
+        "default": "mdi:play-circle-outline"
       }
     },
     "event": {
@@ -79,6 +85,12 @@
         "state": {
           "off": "mdi:thermometer-off"
         }
+      },
+      "moisture_skip": {
+        "default": "mdi:water-percent-alert",
+        "state": {
+          "off": "mdi:water-percent"
+        }
       }
     },
     "valve": {
@@ -87,6 +99,11 @@
         "state": {
           "open": "mdi:sprinkler-variant"
         }
+      }
+    },
+    "calendar": {
+      "run_history": {
+        "default": "mdi:calendar-check"
       }
     }
   },

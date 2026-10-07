@@ -17,14 +17,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every program's seasonal adjustment daily from the forecast high, from 60%
   at 60°F (15°C) to 150% at 95°F (35°C) by default. Fires
   `rainbird_extended_weather_adjustment`.
+- **Soil moisture skip** switch: with a soil moisture sensor, sets the rain
+  delay at the check time when the soil is at or above a threshold (default
+  40%). Fires `rainbird_extended_moisture_skip`.
+- **Pause** and **Resume** buttons for Run all zones, cycle and soak and
+  blowouts: pausing remembers what's left, including the rest of the running
+  zone (rounded up to a minute) or soak. The Irrigating sensor has a `paused`
+  attribute.
+- **Run history** calendar: every zone run, however it was started, with how
+  long it ran and what started it. Kept for a year across restarts.
 
 ### Changed
 
 - The options are grouped into sections (Run all zones, Blowout, Weather,
-  Rain skip, Freeze skip, Weather adjustment). Saved options carry over.
-- The forecast check time is shared by rain skip, freeze skip and weather
-  adjustment.
-- CI also type checks with mypy and requires 90% test coverage.
+  Rain skip, Freeze skip, Soil moisture skip, Weather adjustment). Saved
+  options carry over.
+- The daily check time is shared by rain, freeze and soil moisture skip and
+  weather adjustment.
+- CI also type checks with mypy and requires 90% test coverage. Tests are
+  organized by feature.
 
 ## [1.3.1] - 2026-10-07
 

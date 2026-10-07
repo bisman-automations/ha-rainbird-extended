@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
+import math
 from typing import TYPE_CHECKING, Any
 
 from ical.iter import MergedIterable, SortableItem
@@ -193,6 +194,12 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._sequence_active = False
         self._sequence_source = SOURCE_RUN_ALL_ZONES
         self._sequence_zone: int | None = None
+        # The step in progress and when it ends (to pause partway through).
+        self._current_step: Step | None = None
+        self._step_end: datetime | None = None
+        # A paused sequence: the steps left, and what started it.
+        self._paused_steps: list[Step] | None = None
+        self._paused_source = SOURCE_RUN_ALL_ZONES
         self._sequence_unsub: CALLBACK_TYPE | None = None
         # zone -> callbacks for run started/finished.
         self._run_listeners: dict[int, list[RunListener]] = {}
@@ -599,9 +606,53 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._started = {zone: _LocalRun(now + timedelta(minutes=minutes), now)}
         self._optimistic_active({zone})
 
+    @property
+    def paused(self) -> bool:
+        """Whether a sequence is paused, waiting to be resumed."""
+        return self._paused_steps is not None
+
+    @property
+    def paused_source(self) -> str | None:
+        """What started the paused sequence (run_all_zones, blowout, ...)."""
+        return self._paused_source if self.paused else None
+
+    async def async_pause(self) -> None:
+        """Pause Run all zones, cycle and soak or a blowout where it is."""
+        if not self._sequence_active:
+            raise HomeAssistantError("Nothing to pause")
+        now = dt_util.utcnow()
+        steps = list(self._steps)
+        step, end = self._current_step, self._step_end
+        if step is not None and end is not None and end > now:
+            left = math.ceil((end - now).total_seconds())
+            if step.zone is not None:
+                # Rain Bird runs whole minutes: round what's left up.
+                left = max(60, math.ceil(left / 60) * 60)
+            steps.insert(0, Step(step.zone, left))
+        source = self._sequence_source
+        self._cancel_sequence()
+        await self._async_command(self.controller.stop_irrigation)
+        self._started.clear()
+        self._paused_steps = steps
+        self._paused_source = source
+        _LOGGER.info("Paused %s with %s steps left", source, len(steps))
+        self._optimistic_active(set())
+
+    async def async_resume(self) -> None:
+        """Carry on with a paused sequence."""
+        if self._paused_steps is None:
+            raise HomeAssistantError("Nothing is paused")
+        steps, source = self._paused_steps, self._paused_source
+        self._paused_steps = None
+        if not steps:
+            self.async_update_listeners()
+            return
+        await self._async_run_steps(steps, source)
+
     async def async_stop(self) -> None:
         """Stop all irrigation (Rain Bird can't stop a single zone)."""
         self._cancel_sequence()
+        self._paused_steps = None
         self._manual_program = None
         await self._async_command(self.controller.stop_irrigation)
         self._started.clear()
@@ -718,6 +769,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
 
     async def _async_run_steps(self, steps: list[Step], source: str) -> None:
         self._cancel_sequence()
+        self._paused_steps = None
         self._steps = steps
         self._sequence_active = True
         self._sequence_source = source
@@ -728,6 +780,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             self._cancel_sequence()
             return
         step = self._steps.pop(0)
+        self._current_step = step
         if step.zone is None:
             # Soak: nothing runs until the next cycle.
             self._sequence_zone = None
@@ -748,6 +801,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                 self.hass, self._async_sequence_step(), f"{DOMAIN} sequence"
             )
 
+        self._step_end = end
         self._sequence_unsub = async_track_point_in_utc_time(self.hass, _next, end)
         self.async_update_listeners()
 
@@ -766,6 +820,8 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._steps = []
         self._sequence_active = False
         self._sequence_zone = None
+        self._current_step = None
+        self._step_end = None
         if was_running:
             self.async_update_listeners()
 

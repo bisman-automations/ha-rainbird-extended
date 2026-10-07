@@ -1,7 +1,8 @@
-"""Tests for freeze skip and weather adjustment."""
+"""Tests for rain skip, freeze skip and weather adjustment."""
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -22,20 +23,30 @@ from custom_components.rainbird_extended.const import (
     CONF_FREEZE_DELAY_DAYS,
     CONF_FREEZE_SENSOR,
     CONF_FREEZE_TEMPERATURE,
+    CONF_MOISTURE_SENSOR,
+    CONF_MOISTURE_THRESHOLD,
+    CONF_RAIN_CHANCE,
     CONF_RAIN_CHECK_TIME,
+    CONF_RAIN_DELAY_DAYS,
     CONF_TEMPERATURE_UNIT,
     CONF_WEATHER_ENTITY,
     EVENT_FREEZE_SKIP,
+    EVENT_MOISTURE_SKIP,
+    EVENT_RAIN_SKIP,
     EVENT_WEATHER_ADJUSTMENT,
 )
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
-from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN, SERVICE_TURN_ON
+from homeassistant.components.switch import (
+    DOMAIN as SWITCH_DOMAIN,
+    SERVICE_TURN_OFF,
+    SERVICE_TURN_ON,
+)
 from homeassistant.components.valve import DOMAIN as VALVE_DOMAIN, SERVICE_OPEN_VALVE
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.util import dt as dt_util
 
-from .test_v1_2 import _local, _setup, _unload
+from .helpers import _local, _setup, _unload
 
 WEATHER = "weather.home"
 SENSOR = "sensor.outside_temperature"
@@ -43,12 +54,13 @@ FREEZE = "switch.rain_bird_controller_freeze_skip"
 ADJUST = "switch.rain_bird_controller_weather_adjustment"
 RAIN_SKIP = "switch.rain_bird_controller_rain_skip"
 VALVE = "valve.rain_bird_sprinkler_2"
-
 BASE = {
     CONF_DISABLE_RAINBIRD_SWITCHES: False,
     CONF_RAIN_CHECK_TIME: "04:00:00",
     CONF_TEMPERATURE_UNIT: "°C",
 }
+
+
 WEATHER_OPTIONS = {**BASE, CONF_WEATHER_ENTITY: WEATHER}
 
 
@@ -78,6 +90,30 @@ async def _check_time(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> No
     freezer.move_to(_local(4, 0, 0))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
+
+
+def _rain_weather(hass: HomeAssistant, forecast: list[dict[str, Any]]) -> None:
+    """A weather entity whose daily forecast is the given entries."""
+    hass.states.async_set(WEATHER, "cloudy")
+
+    async def get_forecasts(call: ServiceCall) -> dict[str, Any]:
+        return {WEATHER: {"forecast": forecast}}
+
+    hass.services.async_register(
+        "weather",
+        "get_forecasts",
+        get_forecasts,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+
+RAIN_OPTIONS = {
+    CONF_DISABLE_RAINBIRD_SWITCHES: False,
+    CONF_WEATHER_ENTITY: WEATHER,
+    CONF_RAIN_CHANCE: 60,
+    CONF_RAIN_CHECK_TIME: "04:00:00",
+    CONF_RAIN_DELAY_DAYS: 2,
+}
 
 
 @pytest.mark.parametrize(
@@ -283,4 +319,153 @@ async def test_no_weather_adjustment_when_read_only(
     await _setup(hass, rainbird_entry, extended_entry)
     assert hass.states.get(ADJUST) is None
     assert hass.states.get(FREEZE) is not None
+    await _unload(hass, rainbird_entry, extended_entry)
+
+
+@pytest.mark.parametrize("extended_options", [RAIN_OPTIONS])
+@pytest.mark.parametrize(
+    ("forecast", "skipped"),
+    [
+        ({"precipitation_probability": 80, "condition": "rainy"}, True),
+        ({"precipitation_probability": 30, "condition": "rainy"}, False),
+        ({"condition": "pouring"}, True),
+        ({"condition": "sunny"}, False),
+    ],
+)
+async def test_rain_skip(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    controller: MagicMock,
+    mock_rainbird: MagicMock,
+    rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
+    forecast: dict[str, Any],
+    skipped: bool,
+) -> None:
+    """At the check time, a wet enough forecast sets the rain delay."""
+    freezer.move_to(_local(3, 59, 50))
+    _rain_weather(hass, [{"datetime": dt_util.now().isoformat(), **forecast}])
+    events = async_capture_events(hass, EVENT_RAIN_SKIP)
+    await _setup(hass, rainbird_entry, extended_entry)
+    assert hass.states.get(RAIN_SKIP).state == "on"
+
+    freezer.move_to(_local(4, 0, 0))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(RAIN_SKIP)
+    assert state.attributes["last_check"] is not None
+    if skipped:
+        controller.set_rain_delay.assert_awaited_once_with(2)
+        assert len(events) == 1
+        assert events[0].data["rain_delay_days"] == 2
+        assert state.attributes["last_skipped"] is not None
+    else:
+        controller.set_rain_delay.assert_not_awaited()
+        assert not events
+    await _unload(hass, rainbird_entry, extended_entry)
+
+
+@pytest.mark.parametrize("extended_options", [RAIN_OPTIONS])
+async def test_rain_skip_off_or_already_delayed(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    controller: MagicMock,
+    mock_rainbird: MagicMock,
+    rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
+) -> None:
+    """Nothing happens when switched off, or when a longer delay is set."""
+    freezer.move_to(_local(3, 59, 50))
+    _rain_weather(
+        hass,
+        [{"datetime": dt_util.now().isoformat(), "precipitation_probability": 90}],
+    )
+    await _setup(hass, rainbird_entry, extended_entry)
+    await hass.services.async_call(
+        SWITCH_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: RAIN_SKIP}, blocking=True
+    )
+    freezer.move_to(_local(4, 0, 0))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    controller.set_rain_delay.assert_not_awaited()
+
+    # Back on, but the controller already has a 3 day delay.
+    await hass.services.async_call(
+        SWITCH_DOMAIN, "turn_on", {ATTR_ENTITY_ID: RAIN_SKIP}, blocking=True
+    )
+    controller.get_rain_delay.return_value = 3
+    await hass.config_entries.async_entries("rainbird")[
+        0
+    ].runtime_data.coordinator.async_refresh()
+    freezer.move_to(_local(4, 0, 0) + timedelta(days=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    controller.set_rain_delay.assert_not_awaited()
+    await _unload(hass, rainbird_entry, extended_entry)
+
+
+async def test_no_rain_skip_without_weather(
+    hass: HomeAssistant, setup_integrations: MagicMock
+) -> None:
+    """The switch only exists once a weather entity is chosen."""
+    assert hass.states.get(RAIN_SKIP) is None
+
+
+MOISTURE = "sensor.lawn_moisture"
+MOISTURE_SKIP = "switch.rain_bird_controller_soil_moisture_skip"
+
+
+@pytest.mark.parametrize(
+    "extended_options",
+    [{**BASE, CONF_MOISTURE_SENSOR: MOISTURE, CONF_MOISTURE_THRESHOLD: 45}],
+)
+@pytest.mark.parametrize(("moisture", "skipped"), [(50, True), (45, True), (30, False)])
+async def test_moisture_skip(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    controller: MagicMock,
+    mock_rainbird: MagicMock,
+    rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
+    moisture: float,
+    skipped: bool,
+) -> None:
+    """At the check time, wet enough soil sets the rain delay."""
+    freezer.move_to(_local(3, 59, 50))
+    hass.states.async_set(MOISTURE, str(moisture), {"unit_of_measurement": "%"})
+    events = async_capture_events(hass, EVENT_MOISTURE_SKIP)
+    await _setup(hass, rainbird_entry, extended_entry)
+    assert hass.states.get(MOISTURE_SKIP).state == "on"
+    assert hass.states.get(RAIN_SKIP) is None
+
+    await _check_time(hass, freezer)
+
+    state = hass.states.get(MOISTURE_SKIP)
+    assert state.attributes["last_moisture"] == moisture
+    if skipped:
+        controller.set_rain_delay.assert_awaited_once_with(1)
+        assert events[0].data["moisture"] == moisture
+    else:
+        controller.set_rain_delay.assert_not_awaited()
+        assert not events
+    await _unload(hass, rainbird_entry, extended_entry)
+
+
+@pytest.mark.parametrize("extended_options", [{**BASE, CONF_MOISTURE_SENSOR: MOISTURE}])
+async def test_moisture_skip_unavailable_sensor(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    controller: MagicMock,
+    mock_rainbird: MagicMock,
+    rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
+) -> None:
+    """No reading: nothing is skipped."""
+    freezer.move_to(_local(3, 59, 50))
+    hass.states.async_set(MOISTURE, "unavailable")
+    await _setup(hass, rainbird_entry, extended_entry)
+    await _check_time(hass, freezer)
+    controller.set_rain_delay.assert_not_awaited()
+    assert hass.states.get(MOISTURE_SKIP).attributes["last_check"] is not None
     await _unload(hass, rainbird_entry, extended_entry)

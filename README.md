@@ -35,12 +35,15 @@ devices, no second connection to the controller.
 | Run program A, B, … | `button.rain_bird_controller_run_program_a` | Starts one of the controller's programs. One button per program the model supports. |
 | Run all zones | `button.rain_bird_controller_run_all_zones` | Runs the zones once, each for its valve runtime — every zone in order, or the zones and order set in the options, optionally with cycle and soak. See [Run all zones and cycle and soak](#run-all-zones-and-cycle-and-soak). |
 | Blowout sprinklers | `button.rain_bird_controller_blowout_sprinklers` | Winterizing with an air compressor: each zone in short bursts with a rest after each. See [Blowout sprinklers](#blowout-sprinklers). |
-| Stop irrigation | `button.rain_bird_controller_stop_irrigation` | Stops whatever is running, including Run all zones. |
+| Pause / Resume | `button.rain_bird_controller_pause`, `button.rain_bird_controller_resume` | Pause Run all zones, cycle and soak or a blowout where it is, and carry on later. See [Pause and resume](#pause-and-resume). |
+| Stop irrigation | `button.rain_bird_controller_stop_irrigation` | Stops whatever is running, including Run all zones, and forgets anything paused. |
 | Seasonal adjustment A, B, … | `number.rain_bird_controller_seasonal_adjustment_a` | Each program's seasonal adjust, 10–200% (100% = runtimes as programmed), re-read every 30 minutes. Controllers with one controller-wide value (ESP-RZXe, ST8) get a single **Seasonal adjustment**. See [Seasonal adjustment](#seasonal-adjustment). |
-| Irrigating | `binary_sensor.rain_bird_controller_irrigating` | On while any zone runs, however it was started. Attributes: `zones`, `end`, `run_all_zones`, `blowout`. |
+| Irrigating | `binary_sensor.rain_bird_controller_irrigating` | On while any zone runs, however it was started. Attributes: `zones`, `end`, `run_all_zones`, `blowout`, `paused`. |
 | Rain skip | `switch.rain_bird_controller_rain_skip` | Only with a weather entity chosen in the options. See [Rain skip](#rain-skip). |
 | Freeze skip | `switch.rain_bird_controller_freeze_skip` | With a weather entity or temperature sensor chosen in the options. See [Freeze skip](#freeze-skip). |
 | Weather adjustment | `switch.rain_bird_controller_weather_adjustment` | With a weather entity chosen, on Home Assistant 2026.10 or newer. Starts off. See [Weather adjustment](#weather-adjustment). |
+| Soil moisture skip | `switch.rain_bird_controller_soil_moisture_skip` | With a soil moisture sensor chosen in the options. See [Soil moisture skip](#soil-moisture-skip). |
+| Run history | `calendar.rain_bird_controller_run_history` | Every run of every zone as a calendar event: how long, and what started it. See [Run history](#run-history). |
 
 ### Action: `rainbird_extended.start_zone`
 
@@ -106,6 +109,25 @@ data:
   rest: "00:02:30"
 ```
 
+### Pause and resume
+
+**Pause** stops Run all zones, cycle and soak or a blowout where it is and
+remembers what's left — including the rest of the zone that was running
+(rounded up to a whole minute, since Rain Bird runs zones in minutes) or the
+rest of a soak or blowout rest. **Resume** carries on from there. The buttons
+are only available when there's something to pause or resume, and the
+Irrigating sensor's `paused` attribute says what's paused. **Stop irrigation**
+forgets anything paused; starting Run all zones, cycle and soak or a blowout
+replaces it.
+
+### Run history
+
+The **Run history** calendar shows every run of every zone — from Home
+Assistant, the schedule, a program or the Rain Bird app — as an event named
+after the zone, with how long it ran and what started it (for example
+"12 min, started by the schedule"). A run in progress shows as the current
+event. History is kept for a year and survives restarts.
+
 ### Run events
 
 Each zone's **Run** event entity fires when the zone starts and finishes,
@@ -150,8 +172,9 @@ The valves map directly onto HomeKit's irrigation valve characteristics
 **Settings → Devices & services → Rain Bird Extended → Configure.** The
 options are grouped into sections: Run all zones and cycle and soak, Blowout
 sprinklers, Weather (the forecast entity and the daily check time shared by
-rain skip, freeze skip and weather adjustment), Rain skip, Freeze skip and
-Weather adjustment. Temperatures are in your Home Assistant unit system.
+rain, freeze and soil moisture skip and weather adjustment), Rain skip, Freeze
+skip, Soil moisture skip and Weather adjustment. Temperatures are in your Home
+Assistant unit system.
 
 ### Rain skip
 
@@ -179,6 +202,14 @@ to get a **Freeze skip** switch (on by default). While it's on:
 
 Each skip or stop fires a `rainbird_extended_freeze_skip` event with `reason`
 (`forecast` or `sensor`) and the temperature.
+
+### Soil moisture skip
+
+Choose a soil moisture sensor in the options to get a **Soil moisture skip**
+switch (on by default). Each day at the check time, if the sensor reads at or
+above your threshold (default 40%), it sets the controller's rain delay
+(default 1 day), never shortening a longer one. Each skip fires a
+`rainbird_extended_moisture_skip` event.
 
 ### Weather adjustment
 

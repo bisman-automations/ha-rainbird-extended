@@ -1,4 +1,4 @@
-"""Weather switches: rain skip, freeze skip and weather adjustment.
+"""Weather switches: rain, freeze and soil moisture skip, weather adjustment.
 
 Each one, while on, checks the weather once a day at the check time from the
 options. Freeze skip also watches an optional temperature sensor.
@@ -32,6 +32,9 @@ from .const import (
     CONF_FREEZE_DELAY_DAYS,
     CONF_FREEZE_SENSOR,
     CONF_FREEZE_TEMPERATURE,
+    CONF_MOISTURE_DELAY_DAYS,
+    CONF_MOISTURE_SENSOR,
+    CONF_MOISTURE_THRESHOLD,
     CONF_RAIN_CHANCE,
     CONF_RAIN_CHECK_TIME,
     CONF_RAIN_DELAY_DAYS,
@@ -40,10 +43,13 @@ from .const import (
     DEFAULT_ADJUST_HIGH_PERCENT,
     DEFAULT_ADJUST_LOW_PERCENT,
     DEFAULT_FREEZE_DELAY_DAYS,
+    DEFAULT_MOISTURE_DELAY_DAYS,
+    DEFAULT_MOISTURE_THRESHOLD,
     DEFAULT_RAIN_CHANCE,
     DEFAULT_RAIN_CHECK_TIME,
     DEFAULT_RAIN_DELAY_DAYS,
     EVENT_FREEZE_SKIP,
+    EVENT_MOISTURE_SKIP,
     EVENT_RAIN_SKIP,
     EVENT_WEATHER_ADJUSTMENT,
     RAINY_CONDITIONS,
@@ -82,6 +88,8 @@ async def async_setup_entry(
         and coordinator.can_set_water_budget
     ):
         entities.append(RainbirdWeatherAdjustment(coordinator, options, unit))
+    if options.get(CONF_MOISTURE_SENSOR):
+        entities.append(RainbirdMoistureSkip(coordinator, options))
     async_add_entities(entities)
 
 
@@ -477,3 +485,66 @@ class RainbirdWeatherAdjustment(_DailyWeatherSwitch):
                 "changed": bool(changed),
             },
         )
+
+
+class RainbirdMoistureSkip(_DailyWeatherSwitch):
+    """While on, set a rain delay when the soil is already wet enough."""
+
+    def __init__(
+        self, coordinator: RainbirdExtendedCoordinator, options: dict[str, Any]
+    ) -> None:
+        """Initialize the switch."""
+        super().__init__(coordinator, options, "moisture_skip")
+        self._sensor: str = options[CONF_MOISTURE_SENSOR]
+        self._threshold = float(
+            options.get(CONF_MOISTURE_THRESHOLD, DEFAULT_MOISTURE_THRESHOLD)
+        )
+        self._days = int(
+            options.get(CONF_MOISTURE_DELAY_DAYS, DEFAULT_MOISTURE_DELAY_DAYS)
+        )
+        self._last_moisture: float | None = None
+        self._last_skipped: datetime | None = None
+
+    def _restore(self, attributes: dict[str, Any]) -> None:
+        if skipped := attributes.get("last_skipped"):
+            self._last_skipped = dt_util.parse_datetime(skipped)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the sensor, threshold and what the last check found."""
+        return {
+            "moisture_sensor": self._sensor,
+            "moisture_threshold": self._threshold,
+            "check_time": self._check.isoformat(),
+            "last_check": self._iso(self._last_check),
+            "last_moisture": self._last_moisture,
+            "last_skipped": self._iso(self._last_skipped),
+        }
+
+    async def async_check(self) -> None:
+        """Set a rain delay if the soil moisture is at or above the threshold."""
+        state = self.hass.states.get(self._sensor)
+        try:
+            moisture = float(state.state) if state else None
+        except ValueError:
+            moisture = None
+        self._last_check = dt_util.utcnow()
+        self._last_moisture = moisture
+        if moisture is None:
+            raise HomeAssistantError(f"{self._sensor} has no moisture reading")
+        if moisture >= self._threshold and self._current_delay() < self._days:
+            await self.coordinator.async_set_rain_delay(self._days)
+            self._last_skipped = self._last_check
+            _LOGGER.info(
+                "Soil moisture skip: %s%%, rain delay set to %s day(s)",
+                moisture,
+                self._days,
+            )
+            self.hass.bus.async_fire(
+                EVENT_MOISTURE_SKIP,
+                {
+                    "entity_id": self.entity_id,
+                    "moisture": moisture,
+                    "rain_delay_days": self._days,
+                },
+            )

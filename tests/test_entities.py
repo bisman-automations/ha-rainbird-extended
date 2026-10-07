@@ -10,7 +10,6 @@ from pyrainbird.exceptions import RainbirdDeviceBusyException, RainbirdDeviceNac
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
-    async_fire_time_changed,
     mock_restore_cache_with_extra_data,
 )
 
@@ -32,24 +31,12 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .conftest import RAINBIRD_UNIQUE_ID, ZONES, controller_state
+from .helpers import _poll_core
 
 VALVE = "valve.rain_bird_sprinkler_2"
 SWITCH = "switch.rain_bird_sprinkler_2"
 RUNTIME = "number.rain_bird_sprinkler_2_valve_runtime"
 REMAINING = "sensor.rain_bird_sprinkler_2_time_remaining"
-
-
-async def _poll_core(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
-    """Advance a minute and have the core Rain Bird coordinator poll again."""
-    freezer.tick(timedelta(minutes=1))
-    async_fire_time_changed(hass)
-    for entry in hass.config_entries.async_entries("rainbird"):
-        await entry.runtime_data.coordinator.async_refresh()
-    await hass.async_block_till_done()
-    # Let our own refresh debounce run.
-    freezer.tick(timedelta(seconds=3))
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done()
 
 
 @pytest.mark.usefixtures("setup_integrations")

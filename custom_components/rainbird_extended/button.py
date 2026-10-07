@@ -1,4 +1,4 @@
-"""Controller buttons: run a program, run all zones, blowout, stop."""
+"""Controller buttons: programs, run all zones, blowout, pause/resume, stop."""
 
 from __future__ import annotations
 
@@ -24,6 +24,8 @@ async def async_setup_entry(
     entities: list[Entity] = [
         RainbirdRunAllZones(coordinator),
         RainbirdBlowout(coordinator),
+        RainbirdPause(coordinator),
+        RainbirdResume(coordinator),
         RainbirdStopIrrigation(coordinator),
     ]
     entities.extend(
@@ -96,8 +98,46 @@ class RainbirdBlowout(RainbirdExtendedControllerEntity, ButtonEntity):
         )
 
 
+class RainbirdPause(RainbirdExtendedControllerEntity, ButtonEntity):
+    """Pause Run all zones, cycle and soak or a blowout where it is."""
+
+    _attr_translation_key = "pause"
+
+    def __init__(self, coordinator: RainbirdExtendedCoordinator) -> None:
+        """Initialize the button."""
+        super().__init__(coordinator, "pause")
+
+    @property
+    def available(self) -> bool:
+        """Only while one of those is running."""
+        return super().available and self.coordinator.sequence_running
+
+    async def async_press(self) -> None:
+        """Pause."""
+        await self.coordinator.async_pause()
+
+
+class RainbirdResume(RainbirdExtendedControllerEntity, ButtonEntity):
+    """Carry on with a paused Run all zones, cycle and soak or blowout."""
+
+    _attr_translation_key = "resume"
+
+    def __init__(self, coordinator: RainbirdExtendedCoordinator) -> None:
+        """Initialize the button."""
+        super().__init__(coordinator, "resume")
+
+    @property
+    def available(self) -> bool:
+        """Only while something is paused."""
+        return super().available and self.coordinator.paused
+
+    async def async_press(self) -> None:
+        """Resume."""
+        await self.coordinator.async_resume()
+
+
 class RainbirdStopIrrigation(RainbirdExtendedControllerEntity, ButtonEntity):
-    """Stop all irrigation, including "Run all zones"."""
+    """Stop all irrigation, including Run all zones and paused sequences."""
 
     _attr_translation_key = "stop_irrigation"
 

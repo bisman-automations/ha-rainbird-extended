@@ -42,6 +42,9 @@ from .const import (
     CONF_FREEZE_DELAY_DAYS,
     CONF_FREEZE_SENSOR,
     CONF_FREEZE_TEMPERATURE,
+    CONF_MOISTURE_DELAY_DAYS,
+    CONF_MOISTURE_SENSOR,
+    CONF_MOISTURE_THRESHOLD,
     CONF_RAIN_CHANCE,
     CONF_RAIN_CHECK_TIME,
     CONF_RAIN_DELAY_DAYS,
@@ -57,6 +60,8 @@ from .const import (
     DEFAULT_BLOWOUT_REST_SECONDS,
     DEFAULT_DISABLE_RAINBIRD_SWITCHES,
     DEFAULT_FREEZE_DELAY_DAYS,
+    DEFAULT_MOISTURE_DELAY_DAYS,
+    DEFAULT_MOISTURE_THRESHOLD,
     DEFAULT_RAIN_CHANCE,
     DEFAULT_RAIN_CHECK_TIME,
     DEFAULT_RAIN_DELAY_DAYS,
@@ -65,6 +70,7 @@ from .const import (
     RAINBIRD_DOMAIN,
     SECTION_BLOWOUT,
     SECTION_FREEZE_SKIP,
+    SECTION_MOISTURE_SKIP,
     SECTION_RAIN_SKIP,
     SECTION_RUN_ALL_ZONES,
     SECTION_WEATHER,
@@ -269,6 +275,17 @@ def options_schema(valves: list[str], unit: str) -> vol.Schema:
             ),
             vol.Required(
                 CONF_FREEZE_DELAY_DAYS, default=DEFAULT_FREEZE_DELAY_DAYS
+            ): _number(1, 14, 1),
+        },
+        SECTION_MOISTURE_SKIP: {
+            vol.Optional(CONF_MOISTURE_SENSOR): EntitySelector(
+                EntitySelectorConfig(domain="sensor", device_class="moisture")
+            ),
+            vol.Required(
+                CONF_MOISTURE_THRESHOLD, default=DEFAULT_MOISTURE_THRESHOLD
+            ): _number(1, 100, 1, "%"),
+            vol.Required(
+                CONF_MOISTURE_DELAY_DAYS, default=DEFAULT_MOISTURE_DELAY_DAYS
             ): _number(1, 14, 1),
         },
         SECTION_WEATHER_ADJUSTMENT: {

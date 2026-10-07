@@ -18,13 +18,12 @@ from custom_components.rainbird_extended.const import (
     DOMAIN,
 )
 from custom_components.rainbird_extended.sequence import Step, plan_blowout
-from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
-from .test_v1_3 import _advance, _calls
+from .helpers import _advance, _calls, _press
 
 BLOWOUT = "button.rain_bird_controller_blowout_sprinklers"
 STOP = "button.rain_bird_controller_stop_irrigation"
@@ -32,13 +31,6 @@ IRRIGATING = "binary_sensor.rain_bird_controller_irrigating"
 RUN_EVENT = "event.rain_bird_sprinkler_1_run"
 BURST = timedelta(minutes=1)
 REST = timedelta(seconds=150)
-
-
-async def _press(hass: HomeAssistant, entity_id: str) -> None:
-    await hass.services.async_call(
-        BUTTON_DOMAIN, SERVICE_PRESS, {ATTR_ENTITY_ID: entity_id}, blocking=True
-    )
-    await hass.async_block_till_done()
 
 
 def test_plan_blowout() -> None:
