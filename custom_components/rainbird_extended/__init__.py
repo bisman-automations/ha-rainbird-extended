@@ -127,6 +127,7 @@ async def async_setup_entry(
     coordinator.async_start()
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _async_remove_stale_entities(hass, entry)
 
     _async_sync_rainbird_switches(
         hass,
@@ -187,3 +188,23 @@ def _async_sync_rainbird_switches(
         elif entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
             _LOGGER.debug("Re-enabling %s", entity.entity_id)
             registry.async_update_entity(entity.entity_id, disabled_by=None)
+
+
+@callback
+def _async_remove_stale_entities(
+    hass: HomeAssistant, entry: RainbirdExtendedConfigEntry
+) -> None:
+    """Remove seasonal adjustment entities this controller no longer gets.
+
+    Before 1.2.0 every controller had one Seasonal adjustment sensor from the
+    controller state; controllers with water budgets now get one per program
+    instead, which would otherwise leave the old one behind as unavailable.
+    """
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if "seasonal_adjustment" not in entity.unique_id or entity.disabled_by:
+            continue
+        state = hass.states.get(entity.entity_id)
+        if state is None or state.attributes.get("restored"):
+            _LOGGER.debug("Removing %s, no longer provided", entity.entity_id)
+            registry.async_remove(entity.entity_id)

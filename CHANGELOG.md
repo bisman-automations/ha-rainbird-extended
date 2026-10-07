@@ -6,6 +6,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-06
+
+### Added
+
+- **Seasonal adjustment** per program (10–200%) from the controller's water
+  budget, which the ARC8, ESP-TM2 and other models support (the 1.1.0 sensor
+  was unavailable on the ARC8). Read-only with Home Assistant 2026.9
+  (pyrainbird 6.5); adjustable once Home Assistant ships pyrainbird 6.6 or
+  newer. Models without water budgets keep a read-only sensor from the
+  controller state.
+- **Irrigating** binary sensor on the controller: on while any zone runs, with
+  the running zones and end time.
+- **Rain skip**: choose a weather entity in the options to get a Rain skip
+  switch that sets the controller's rain delay when today's forecast is wet
+  enough (chance of rain threshold, check time and delay days configurable).
+- Time remaining for controllers that don't report it (such as the ARC8),
+  worked out from the controller's schedule for scheduled runs and programs
+  started from Home Assistant.
+- Bug report and feature request forms.
+
+### Changed
+
+- The seasonal adjustment is read from the water budget every 30 minutes; the
+  idle controller state check only runs for models without water budgets.
+- The old **Seasonal adjustment** sensor is removed on controllers that now
+  get one per program, instead of being left behind as unavailable.
+
 ## [1.1.0] - 2026-10-06
 
 ### Added
@@ -23,19 +50,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dashboard's water consumption.
 - **Run program** buttons (one per program), **Run all zones** and **Stop
   irrigation** buttons on the controller.
-- **Seasonal adjustment** per program (10–200%) from the controller's water
-  budget. Read-only with Home Assistant 2026.9 (pyrainbird 6.5); adjustable
-  once Home Assistant ships pyrainbird 6.6 or newer. Models without water
-  budgets get a read-only sensor from the controller state instead.
-- Bug report and feature request forms.
-- **Irrigating** binary sensor on the controller: on while any zone runs, with
-  the running zones and end time.
-- **Rain skip**: choose a weather entity in the options to get a Rain skip
-  switch that sets the controller's rain delay when today's forecast is wet
-  enough (chance of rain threshold, check time and delay days configurable).
-- Time remaining for controllers that don't report it (such as the ARC8),
-  worked out from the controller's schedule for scheduled runs and programs
-  started from Home Assistant.
+- **Seasonal adjustment** sensor on the controller.
 - `rainbird_extended.start_zone` action to run a zone once for a set time.
 - Option to disable the core Rain Bird zone switches the valves replace.
 
@@ -43,8 +58,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The core Rain Bird zone switches are now disabled by default; turn off
   **Disable the Rain Bird zone switches** in the options to keep them.
-- The controller is now also asked for its seasonal adjustment every 30
-  minutes.
+- The controller is now also asked for its state every 30 minutes while idle
+  (for the seasonal adjustment).
 
 ## [1.0.0] - 2026-10-06
 
@@ -69,6 +84,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
-[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/bisman-automations/ha-rainbird-extended/releases/tag/v1.0.0

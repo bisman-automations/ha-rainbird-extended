@@ -33,8 +33,10 @@ from homeassistant.components.valve import (
 )
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
+from .conftest import RAINBIRD_UNIQUE_ID
 from .test_entities import _poll_core
 
 IRRIGATING = "binary_sensor.rain_bird_controller_irrigating"
@@ -268,3 +270,29 @@ async def test_no_rain_skip_without_weather(
 ) -> None:
     """The switch only exists once a weather entity is chosen."""
     assert hass.states.get(RAIN_SKIP) is None
+
+
+async def test_stale_seasonal_adjustment_removed(
+    hass: HomeAssistant,
+    mock_rainbird: MagicMock,
+    rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """The 1.1.0 controller-state sensor goes once per-program ones replace it."""
+    old = entity_registry.async_get_or_create(
+        "sensor",
+        "rainbird_extended",
+        f"{RAINBIRD_UNIQUE_ID}-seasonal_adjustment",
+        config_entry=extended_entry,
+        suggested_object_id="rain_bird_controller_seasonal_adjustment",
+    )
+    assert await hass.config_entries.async_setup(rainbird_entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(extended_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entity_registry.async_get(old.entity_id) is None
+    assert hass.states.get("number.rain_bird_controller_seasonal_adjustment_a")
+    await hass.config_entries.async_unload(extended_entry.entry_id)
+    await hass.config_entries.async_unload(rainbird_entry.entry_id)
