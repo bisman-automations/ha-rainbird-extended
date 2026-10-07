@@ -61,11 +61,15 @@ class RainbirdZoneValve(RainbirdExtendedZoneEntity, ValveEntity):
         """Run the zone for its configured runtime."""
         await self.coordinator.async_start_zone(self._zone)
 
-    async def async_start_zone(self, duration: timedelta) -> None:
+    async def async_start_zone(
+        self, duration: timedelta, cycle_and_soak: bool = False
+    ) -> None:
         """Run the zone once for the given duration, keeping its valve runtime."""
-        await self.coordinator.async_start_zone(
-            self._zone, int(duration.total_seconds())
-        )
+        seconds = int(duration.total_seconds())
+        if cycle_and_soak:
+            await self.coordinator.async_cycle_and_soak(self._zone, seconds)
+        else:
+            await self.coordinator.async_start_zone(self._zone, seconds)
 
     async def async_close_valve(self) -> None:
         """Stop irrigation."""

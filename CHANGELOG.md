@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Cycle and soak**: options for a cycle length and soak time. Run all zones
+  splits each zone's run into cycles and takes turns between zones, pausing
+  only when needed for each zone to soak; `start_zone` gets a
+  `cycle_and_soak` option for a single zone.
+- **Run all zones** zones and order, set in the options (for example
+  `3, 1, 2`).
+- **Run** event entity per zone, firing `started` and `finished` with what
+  started the run (`home_assistant`, `run_all_zones`, `program`, `schedule`
+  or `other`).
+- **Last run** has a `source` attribute.
+- A repair issue, with a fix that removes Rain Bird Extended, when the Rain
+  Bird entry it extends is deleted.
+
 ## [1.2.0] - 2026-10-06
 
 ### Added

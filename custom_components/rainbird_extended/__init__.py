@@ -24,12 +24,14 @@ from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import (
     config_validation as cv,
     entity_registry as er,
+    issue_registry as ir,
     service,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
+    ATTR_CYCLE_AND_SOAK,
     ATTR_DURATION,
     CONF_DISABLE_RAINBIRD_SWITCHES,
     CONF_RAINBIRD_ENTRY_ID,
@@ -48,6 +50,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 PLATFORMS = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
+    Platform.EVENT,
     Platform.NUMBER,
     Platform.SENSOR,
     Platform.SWITCH,
@@ -62,9 +65,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     @callback
     def _rainbird_entry_changed(change: ConfigEntryChange, entry: ConfigEntry) -> None:
+        if entry.domain != RAINBIRD_DOMAIN:
+            return
+        if change is ConfigEntryChange.REMOVED:
+            # Rain Bird was deleted: reload so setup raises the repair issue.
+            for ours in hass.config_entries.async_entries(DOMAIN):
+                if ours.data.get(CONF_RAINBIRD_ENTRY_ID) == entry.entry_id:
+                    hass.config_entries.async_schedule_reload(ours.entry_id)
+            return
         if (
             change is not ConfigEntryChange.UPDATED
-            or entry.domain != RAINBIRD_DOMAIN
             or entry.state is not ConfigEntryState.LOADED
         ):
             return
@@ -93,7 +103,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     min=timedelta(seconds=RUNTIME_MIN_SECONDS),
                     max=timedelta(seconds=RUNTIME_MAX_SECONDS),
                 ),
-            )
+            ),
+            vol.Optional(ATTR_CYCLE_AND_SOAK, default=False): cv.boolean,
         },
         func="async_start_zone",
     )
@@ -108,6 +119,17 @@ async def async_setup_entry(
         entry.data[CONF_RAINBIRD_ENTRY_ID]
     )
     if rainbird_entry is None:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            _issue_id(entry),
+            is_fixable=True,
+            is_persistent=False,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key="rainbird_removed",
+            translation_placeholders={"title": entry.title},
+            data={"entry_id": entry.entry_id},
+        )
         raise ConfigEntryError(
             "The Rain Bird controller this extends was removed; "
             "delete and re-add Rain Bird Extended"
@@ -120,6 +142,7 @@ async def async_setup_entry(
             "can't be extended"
         )
 
+    ir.async_delete_issue(hass, DOMAIN, _issue_id(entry))
     coordinator = RainbirdExtendedCoordinator(hass, entry, rainbird_entry)
     coordinator.linked_zones = coordinator.linkable_zones()
     await coordinator.async_refresh()
@@ -151,10 +174,15 @@ async def async_remove_entry(
     hass: HomeAssistant, entry: RainbirdExtendedConfigEntry
 ) -> None:
     """Give the core Rain Bird switches back when this is removed."""
+    ir.async_delete_issue(hass, DOMAIN, _issue_id(entry))
     if rainbird_entry := hass.config_entries.async_get_entry(
         entry.data[CONF_RAINBIRD_ENTRY_ID]
     ):
         _async_sync_rainbird_switches(hass, rainbird_entry, [], disable=False)
+
+
+def _issue_id(entry: ConfigEntry) -> str:
+    return f"rainbird_removed_{entry.entry_id}"
 
 
 @callback

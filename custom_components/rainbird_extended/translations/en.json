@@ -23,16 +23,25 @@
           "weather_entity": "Weather forecast for rain skip",
           "rain_chance": "Skip when the chance of rain is at least",
           "rain_check_time": "Check the forecast at",
-          "rain_delay_days": "Rain delay to set (days)"
+          "rain_delay_days": "Rain delay to set (days)",
+          "run_all_zones": "Run all zones: zones and order",
+          "cycle_minutes": "Cycle and soak: cycle length (minutes)",
+          "soak_minutes": "Cycle and soak: soak time (minutes)"
         },
         "data_description": {
           "disable_rainbird_switches": "Each zone's valve replaces its Rain Bird switch, so the switches are disabled to avoid having every zone twice (for example in HomeKit). Turn this off to keep both.",
           "weather_entity": "Pick a weather entity to add a Rain skip switch. Each day at the check time, if today's forecast is wet enough, the controller's rain delay is set.",
           "rain_chance": "Compared with today's precipitation probability. Forecasts without one count as wet when the condition is rainy.",
           "rain_check_time": "Pick a time before your programs start.",
-          "rain_delay_days": "Only raised, never shortened, if a longer rain delay is already set."
+          "rain_delay_days": "Only raised, never shortened, if a longer rain delay is already set.",
+          "run_all_zones": "Zone numbers in the order to run them, separated by commas (for example 3, 1, 2). Leave empty to run every zone in order.",
+          "cycle_minutes": "Run all zones (and start_zone with cycle and soak) split each zone's run into cycles of at most this long, taking turns between zones. 0 turns cycle and soak off.",
+          "soak_minutes": "The least time each zone rests between its cycles."
         }
       }
+    },
+    "error": {
+      "invalid_zones": "Enter zone numbers separated by commas, each once, for zones this controller has."
     }
   },
   "entity": {
@@ -63,6 +72,29 @@
         "name": "Stop irrigation"
       }
     },
+    "event": {
+      "run": {
+        "name": "Run",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "started": "Started",
+              "finished": "Finished"
+            }
+          },
+          "source": {
+            "name": "Started by",
+            "state": {
+              "home_assistant": "Home Assistant",
+              "run_all_zones": "Run all zones",
+              "program": "Program",
+              "schedule": "Schedule",
+              "other": "Other"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "flow_rate": {
         "name": "Flow rate"
@@ -86,6 +118,16 @@
           },
           "end": {
             "name": "End"
+          },
+          "source": {
+            "name": "Started by",
+            "state": {
+              "home_assistant": "Home Assistant",
+              "run_all_zones": "Run all zones",
+              "program": "Program",
+              "schedule": "Schedule",
+              "other": "Other"
+            }
           }
         }
       },
@@ -124,6 +166,23 @@
         "duration": {
           "name": "Duration",
           "description": "How long to run the zone. Rain Bird runs zones in whole minutes."
+        },
+        "cycle_and_soak": {
+          "name": "Cycle and soak",
+          "description": "Split the run into cycles with soaks between them, using the cycle and soak times from the options."
+        }
+      }
+    }
+  },
+  "issues": {
+    "rainbird_removed": {
+      "title": "{title} has no Rain Bird controller",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Remove {title}?",
+            "description": "The Rain Bird integration entry that {title} extends was removed, so its valves and other entities can't work.\\n\\nIf you set up Rain Bird again, remove {title} and add Rain Bird Extended again for the new controller. Select **Submit** to remove {title} now."
+          }
         }
       }
     }

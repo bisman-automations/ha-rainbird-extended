@@ -9,3 +9,7 @@ start_zone:
       example: "00:15:00"
       selector:
         duration:
+    cycle_and_soak:
+      default: false
+      selector:
+        boolean:

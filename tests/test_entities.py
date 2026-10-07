@@ -70,7 +70,7 @@ async def test_entities_linked_to_zone_devices(
             entry.domain
             for entry in er.async_entries_for_device(entity_registry, device.id)
         }
-        assert domains == {"switch", "valve", "number", "sensor"}
+        assert domains == {"switch", "valve", "number", "sensor", "event"}
     # No extra devices were created.
     assert not dr.async_entries_for_config_entry(
         device_registry,

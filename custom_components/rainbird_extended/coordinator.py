@@ -34,8 +34,12 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_CYCLE_MINUTES,
+    CONF_RUN_ALL_ZONES,
+    CONF_SOAK_MINUTES,
     CONFIRM_DELAY,
     CONTROLLER_STATE_IDLE_REFRESH,
+    DEFAULT_SOAK_MINUTES,
     DOMAIN,
     EARLY_STOP_MARGIN,
     END_TIME_TOLERANCE,
@@ -46,6 +50,7 @@ from .const import (
     START_GRACE_PERIOD,
     TIMEOUT_SECONDS,
 )
+from .sequence import Step, plan_steps
 
 if TYPE_CHECKING:
     from homeassistant.components.rainbird.coordinator import (
@@ -54,6 +59,16 @@ if TYPE_CHECKING:
     )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+SOURCE_HOME_ASSISTANT = "home_assistant"
+SOURCE_RUN_ALL_ZONES = "run_all_zones"
+SOURCE_PROGRAM = "program"
+SOURCE_SCHEDULE = "schedule"
+SOURCE_OTHER = "other"
+
+EVENT_STARTED = "started"
+EVENT_FINISHED = "finished"
 
 
 @dataclass
@@ -71,12 +86,16 @@ class ZoneRun:
 
     start: datetime
     end: datetime | None = None
+    # home_assistant, run_all_zones, program, schedule or other
+    source: str = SOURCE_OTHER
 
     @property
     def duration(self) -> timedelta | None:
         """How long the run lasted (None while it is still running)."""
         return None if self.end is None else self.end - self.start
 
+
+type RunListener = Callable[[str, ZoneRun], None]
 
 # zone number -> when the current run is expected to end (None if unknown)
 type ZoneEndTimes = dict[int, datetime | None]
@@ -161,10 +180,14 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._prev_running: set[int] = set()
         self._prev_end_times: ZoneEndTimes = {}
         self._last_tick: datetime | None = None
-        # "Run all zones" sequence.
-        self._sequence: list[int] = []
+        # Sequence of steps (Run all zones, cycle and soak).
+        self._steps: list[Step] = []
+        self._sequence_active = False
+        self._sequence_source = SOURCE_RUN_ALL_ZONES
         self._sequence_zone: int | None = None
         self._sequence_unsub: CALLBACK_TYPE | None = None
+        # zone -> callbacks for run started/finished.
+        self._run_listeners: dict[int, list[RunListener]] = {}
 
     @property
     def rainbird_unique_id(self) -> str | None:
@@ -188,8 +211,19 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
 
     @property
     def sequence_running(self) -> bool:
-        """Whether "Run all zones" is in progress."""
-        return self._sequence_zone is not None
+        """Whether "Run all zones" (or a cycle and soak run) is in progress."""
+        return self._sequence_active
+
+    @callback
+    def async_add_run_listener(self, zone: int, listener: RunListener) -> CALLBACK_TYPE:
+        """Call listener(event, run) when a zone starts or finishes running."""
+        self._run_listeners.setdefault(zone, []).append(listener)
+
+        @callback
+        def remove() -> None:
+            self._run_listeners[zone].remove(listener)
+
+        return remove
 
     def linkable_zones(self) -> list[int]:
         """Zones whose core Rain Bird device exists, in order."""
@@ -418,16 +452,38 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                         until = max(prev_end, self._last_tick)
                     if (run := self.last_runs.get(zone)) and run.end is None:
                         run.end = until
+                        self._fire_run_event(zone, EVENT_FINISHED, run)
                 self.run_seconds[zone] = (
                     self.run_seconds.get(zone, 0.0)
                     + (until - self._last_tick).total_seconds()
                 )
         for zone in running - self._prev_running:
             local = self._started.get(zone)
-            self.last_runs[zone] = ZoneRun(local.started_at if local else now)
+            run = ZoneRun(local.started_at if local else now, source=self._source(zone))
+            self.last_runs[zone] = run
+            self._fire_run_event(zone, EVENT_STARTED, run)
         self._prev_running = running
         self._prev_end_times = dict(end_times)
         self._last_tick = now
+
+    def _source(self, zone: int) -> str:
+        """Work out what started a zone that just began running."""
+        if zone in self._started:
+            if self._sequence_active and zone == self._sequence_zone:
+                return self._sequence_source
+            return SOURCE_HOME_ASSISTANT
+        if self._manual_program is not None and (schedule := self._schedule):
+            index, _ = self._manual_program
+            program = next((p for p in schedule.programs if p.program == index), None)
+            if program is not None and self._program_slot(program, zone):
+                return SOURCE_PROGRAM
+        if self.scheduled_end(zone) is not None:
+            return SOURCE_SCHEDULE
+        return SOURCE_OTHER
+
+    def _fire_run_event(self, zone: int, event: str, run: ZoneRun) -> None:
+        for listener in list(self._run_listeners.get(zone, [])):
+            listener(event, run)
 
     @property
     def _schedule(self) -> Schedule | None:
@@ -560,33 +616,74 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             self.hass, self.rainbird.async_request_refresh(), f"{DOMAIN} confirm"
         )
 
+    def run_all_zones_order(self) -> list[int]:
+        """Zones Run all zones runs, in order (from the options, else all)."""
+        configured = self.config_entry.options.get(CONF_RUN_ALL_ZONES)
+        if not configured:
+            return list(self.linked_zones)
+        zones = [zone for zone in configured if zone in self.linked_zones]
+        if skipped := [zone for zone in configured if zone not in self.linked_zones]:
+            _LOGGER.warning("Run all zones: skipping unknown zones %s", skipped)
+        return zones
+
+    def _cycle_soak(self) -> tuple[int, int]:
+        options = self.config_entry.options
+        return (
+            int(options.get(CONF_CYCLE_MINUTES, 0)) * 60,
+            int(options.get(CONF_SOAK_MINUTES, DEFAULT_SOAK_MINUTES)) * 60,
+        )
+
     async def async_run_all_zones(self) -> None:
-        """Run every zone once, in order, each for its valve runtime."""
-        self._cancel_sequence()
-        zones = list(self.linked_zones)
+        """Run the zones once, in order, each for its valve runtime."""
+        zones = self.run_all_zones_order()
         if not zones:
             raise HomeAssistantError("No zones to run")
-        self._sequence = zones
+        cycle, soak = self._cycle_soak()
+        await self._async_run_steps(
+            plan_steps([(zone, self.runtime_for(zone)) for zone in zones], cycle, soak),
+            SOURCE_RUN_ALL_ZONES,
+        )
+
+    async def async_cycle_and_soak(self, zone: int, seconds: int) -> None:
+        """Run one zone in cycles with soaks between (plain run if no cycle)."""
+        cycle, soak = self._cycle_soak()
+        if cycle <= 0 or seconds <= cycle:
+            await self.async_start_zone(zone, seconds)
+            return
+        await self._async_run_steps(
+            plan_steps([(zone, seconds)], cycle, soak), SOURCE_HOME_ASSISTANT
+        )
+
+    async def _async_run_steps(self, steps: list[Step], source: str) -> None:
+        self._cancel_sequence()
+        self._steps = steps
+        self._sequence_active = True
+        self._sequence_source = source
         await self._async_sequence_next()
 
     async def _async_sequence_next(self) -> None:
-        if not self._sequence:
+        if not self._steps:
             self._cancel_sequence()
             return
-        zone = self._sequence.pop(0)
-        self._sequence_zone = zone
-        try:
-            await self.async_start_zone(zone, _sequence=True)
-        except HomeAssistantError:
-            self._cancel_sequence()
-            raise
-        end = self._started[zone].end
+        step = self._steps.pop(0)
+        if step.zone is None:
+            # Soak: nothing runs until the next cycle.
+            self._sequence_zone = None
+            end = dt_util.utcnow() + timedelta(seconds=step.seconds)
+        else:
+            self._sequence_zone = step.zone
+            try:
+                await self.async_start_zone(step.zone, step.seconds, _sequence=True)
+            except HomeAssistantError:
+                self._cancel_sequence()
+                raise
+            end = self._started[step.zone].end
 
         @callback
         def _next(_now: datetime) -> None:
             self._sequence_unsub = None
             self.config_entry.async_create_background_task(
-                self.hass, self._async_sequence_step(), f"{DOMAIN} run all zones"
+                self.hass, self._async_sequence_step(), f"{DOMAIN} sequence"
             )
 
         self._sequence_unsub = async_track_point_in_utc_time(self.hass, _next, end)
@@ -600,11 +697,12 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
 
     @callback
     def _cancel_sequence(self) -> None:
-        was_running = self.sequence_running
+        was_running = self._sequence_active
         if self._sequence_unsub is not None:
             self._sequence_unsub()
             self._sequence_unsub = None
-        self._sequence = []
+        self._steps = []
+        self._sequence_active = False
         self._sequence_zone = None
         if was_running:
             self.async_update_listeners()

@@ -66,3 +66,10 @@ DEFAULT_RAIN_CHECK_TIME = "04:00:00"
 DEFAULT_RAIN_DELAY_DAYS = 1
 RAINY_CONDITIONS = {"rainy", "pouring", "lightning-rainy", "snowy-rainy"}
 EVENT_RAIN_SKIP = f"{DOMAIN}_rain_skip"
+
+# Run all zones and cycle and soak options.
+CONF_RUN_ALL_ZONES = "run_all_zones"
+CONF_CYCLE_MINUTES = "cycle_minutes"
+CONF_SOAK_MINUTES = "soak_minutes"
+DEFAULT_SOAK_MINUTES = 30
+ATTR_CYCLE_AND_SOAK = "cycle_and_soak"

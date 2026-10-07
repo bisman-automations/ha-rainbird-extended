@@ -8,6 +8,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import (
     ConfigEntry,
+    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlowWithReload,
@@ -23,20 +24,25 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TextSelector,
     TimeSelector,
 )
 
 from .const import (
+    CONF_CYCLE_MINUTES,
     CONF_DISABLE_RAINBIRD_SWITCHES,
     CONF_RAIN_CHANCE,
     CONF_RAIN_CHECK_TIME,
     CONF_RAIN_DELAY_DAYS,
     CONF_RAINBIRD_ENTRY_ID,
+    CONF_RUN_ALL_ZONES,
+    CONF_SOAK_MINUTES,
     CONF_WEATHER_ENTITY,
     DEFAULT_DISABLE_RAINBIRD_SWITCHES,
     DEFAULT_RAIN_CHANCE,
     DEFAULT_RAIN_CHECK_TIME,
     DEFAULT_RAIN_DELAY_DAYS,
+    DEFAULT_SOAK_MINUTES,
     DOMAIN,
     RAINBIRD_DOMAIN,
 )
@@ -114,54 +120,88 @@ class RainbirdExtendedOptions(OptionsFlowWithReload):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        errors: dict[str, str] = {}
+        values: dict[str, Any] = dict(self.config_entry.options)
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
-        options = self.config_entry.options
+            values = dict(user_input)
+            try:
+                zones = _parse_zones(
+                    user_input.get(CONF_RUN_ALL_ZONES, ""), self._known_zones()
+                )
+            except ValueError:
+                errors[CONF_RUN_ALL_ZONES] = "invalid_zones"
+            else:
+                data = dict(user_input)
+                data[CONF_RUN_ALL_ZONES] = zones
+                return self.async_create_entry(data=data)
+        elif zones := values.get(CONF_RUN_ALL_ZONES):
+            values[CONF_RUN_ALL_ZONES] = ", ".join(str(zone) for zone in zones)
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_DISABLE_RAINBIRD_SWITCHES,
-                        default=options.get(
-                            CONF_DISABLE_RAINBIRD_SWITCHES,
-                            DEFAULT_DISABLE_RAINBIRD_SWITCHES,
-                        ),
-                    ): bool,
-                    vol.Optional(
-                        CONF_WEATHER_ENTITY,
-                        description={
-                            "suggested_value": options.get(CONF_WEATHER_ENTITY)
-                        },
-                    ): EntitySelector(EntitySelectorConfig(domain="weather")),
-                    vol.Required(
-                        CONF_RAIN_CHANCE,
-                        default=options.get(CONF_RAIN_CHANCE, DEFAULT_RAIN_CHANCE),
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=10,
-                            max=100,
-                            step=5,
-                            unit_of_measurement="%",
-                            mode=NumberSelectorMode.SLIDER,
-                        )
-                    ),
-                    vol.Required(
-                        CONF_RAIN_CHECK_TIME,
-                        default=options.get(
-                            CONF_RAIN_CHECK_TIME, DEFAULT_RAIN_CHECK_TIME
-                        ),
-                    ): TimeSelector(),
-                    vol.Required(
-                        CONF_RAIN_DELAY_DAYS,
-                        default=options.get(
-                            CONF_RAIN_DELAY_DAYS, DEFAULT_RAIN_DELAY_DAYS
-                        ),
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=1, max=14, step=1, mode=NumberSelectorMode.BOX
-                        )
-                    ),
-                }
-            ),
+            data_schema=self.add_suggested_values_to_schema(_OPTIONS_SCHEMA, values),
+            errors=errors,
         )
+
+    def _known_zones(self) -> set[int] | None:
+        if self.config_entry.state is ConfigEntryState.LOADED:
+            return self.config_entry.runtime_data.zones
+        return None
+
+
+def _parse_zones(text: str, known: set[int] | None) -> list[int]:
+    """Parse "3, 1, 2" into [3, 1, 2]; empty means every zone."""
+    parts = [part.strip() for part in text.replace(";", ",").split(",")]
+    zones = [int(part) for part in parts if part]
+    if len(set(zones)) != len(zones) or any(zone < 1 for zone in zones):
+        raise ValueError
+    if known is not None and any(zone not in known for zone in zones):
+        raise ValueError
+    return zones
+
+
+_OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required(
+            CONF_DISABLE_RAINBIRD_SWITCHES, default=DEFAULT_DISABLE_RAINBIRD_SWITCHES
+        ): bool,
+        vol.Optional(CONF_RUN_ALL_ZONES, default=""): TextSelector(),
+        vol.Required(CONF_CYCLE_MINUTES, default=0): NumberSelector(
+            NumberSelectorConfig(
+                min=0,
+                max=60,
+                step=1,
+                unit_of_measurement="min",
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Required(CONF_SOAK_MINUTES, default=DEFAULT_SOAK_MINUTES): NumberSelector(
+            NumberSelectorConfig(
+                min=0,
+                max=240,
+                step=1,
+                unit_of_measurement="min",
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(CONF_WEATHER_ENTITY): EntitySelector(
+            EntitySelectorConfig(domain="weather")
+        ),
+        vol.Required(CONF_RAIN_CHANCE, default=DEFAULT_RAIN_CHANCE): NumberSelector(
+            NumberSelectorConfig(
+                min=10,
+                max=100,
+                step=5,
+                unit_of_measurement="%",
+                mode=NumberSelectorMode.SLIDER,
+            )
+        ),
+        vol.Required(
+            CONF_RAIN_CHECK_TIME, default=DEFAULT_RAIN_CHECK_TIME
+        ): TimeSelector(),
+        vol.Required(
+            CONF_RAIN_DELAY_DAYS, default=DEFAULT_RAIN_DELAY_DAYS
+        ): NumberSelector(
+            NumberSelectorConfig(min=1, max=14, step=1, mode=NumberSelectorMode.BOX)
+        ),
+    }
+)

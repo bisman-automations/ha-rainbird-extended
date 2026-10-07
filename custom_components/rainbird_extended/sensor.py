@@ -18,7 +18,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import RainbirdExtendedConfigEntry
-from .coordinator import RainbirdExtendedCoordinator, ZoneRun
+from .coordinator import SOURCE_OTHER, RainbirdExtendedCoordinator, ZoneRun
 from .entity import (
     RainbirdExtendedControllerEntity,
     RainbirdExtendedZoneEntity,
@@ -28,6 +28,7 @@ from .entity import (
 
 ATTR_DURATION = "duration"
 ATTR_END = "end"
+ATTR_SOURCE = "source"
 
 
 async def async_setup_entry(
@@ -120,7 +121,9 @@ class RainbirdZoneLastRun(RainbirdExtendedZoneEntity, RestoreSensor):
             return
         end = last.attributes.get(ATTR_END)
         self._restored = ZoneRun(
-            start, dt_util.parse_datetime(end) if isinstance(end, str) else None
+            start,
+            dt_util.parse_datetime(end) if isinstance(end, str) else None,
+            last.attributes.get(ATTR_SOURCE) or SOURCE_OTHER,
         )
 
     @property
@@ -140,6 +143,7 @@ class RainbirdZoneLastRun(RainbirdExtendedZoneEntity, RestoreSensor):
         return {
             ATTR_END: run.end.isoformat() if run and run.end else None,
             ATTR_DURATION: round(duration.total_seconds()) if duration else None,
+            ATTR_SOURCE: run.source if run else None,
         }
 
 

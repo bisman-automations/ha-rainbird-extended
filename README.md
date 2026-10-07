@@ -23,7 +23,8 @@ devices, no second connection to the controller.
 | Valve runtime | `number.rain_bird_sprinkler_1_valve_runtime` | How long the zone runs when opened, in seconds (1 min steps, 1 min – 24 h). Remembered across restarts. |
 | Time remaining | `sensor.rain_bird_sprinkler_1_time_remaining` | When the current run ends (timestamp — the UI shows a countdown like "in 4 minutes"). Unknown while idle. |
 | Next run | `sensor.rain_bird_sprinkler_1_next_run` | When the controller's schedule next runs this zone. Controllers with programs only. |
-| Last run | `sensor.rain_bird_sprinkler_1_last_run` | When the zone last started, however it was started. Attributes `end` and `duration` (seconds). Remembered across restarts. |
+| Last run | `sensor.rain_bird_sprinkler_1_last_run` | When the zone last started, however it was started. Attributes `end`, `duration` (seconds) and `source`. Remembered across restarts. |
+| Run | `event.rain_bird_sprinkler_1_run` | Fires `started` and `finished` for every run, with `source` (`home_assistant`, `run_all_zones`, `program`, `schedule` or `other`), `start`, and on finish `end` and `duration`. See [Run events](#run-events). |
 | Flow rate | `number.rain_bird_sprinkler_1_flow_rate` | How much water the zone uses per minute (L/min, or gal/min with US units). 0 = don't track water. |
 | Water used | `sensor.rain_bird_sprinkler_1_water_used` | Running total from run time × flow rate (L or gal). Add it to the Energy dashboard's water consumption. |
 
@@ -32,7 +33,7 @@ devices, no second connection to the controller.
 | Entity | Example ID | What it does |
 | --- | --- | --- |
 | Run program A, B, … | `button.rain_bird_controller_run_program_a` | Starts one of the controller's programs. One button per program the model supports. |
-| Run all zones | `button.rain_bird_controller_run_all_zones` | Runs every zone once, in order, each for its valve runtime. |
+| Run all zones | `button.rain_bird_controller_run_all_zones` | Runs the zones once, each for its valve runtime — every zone in order, or the zones and order set in the options, optionally with cycle and soak. See [Run all zones and cycle and soak](#run-all-zones-and-cycle-and-soak). |
 | Stop irrigation | `button.rain_bird_controller_stop_irrigation` | Stops whatever is running, including Run all zones. |
 | Seasonal adjustment A, B, … | `number.rain_bird_controller_seasonal_adjustment_a` | Each program's seasonal adjust, 10–200% (100% = runtimes as programmed), re-read every 30 minutes. Controllers with one controller-wide value (ESP-RZXe, ST8) get a single **Seasonal adjustment**. See [Seasonal adjustment](#seasonal-adjustment). |
 | Irrigating | `binary_sensor.rain_bird_controller_irrigating` | On while any zone runs, however it was started. Attributes: `zones`, `end`, `run_all_zones`. |
@@ -48,7 +49,55 @@ target:
   entity_id: valve.rain_bird_sprinkler_1
 data:
   duration: "00:15:00"
+  cycle_and_soak: true  # optional, uses the cycle and soak times from the options
 ```
+
+### Run all zones and cycle and soak
+
+In Rain Bird Extended's options:
+
+- **Run all zones: zones and order** — zone numbers separated by commas, for
+  example `3, 1, 2`. Leave empty to run every zone in zone order.
+- **Cycle length** — split each zone's run into cycles of at most this many
+  minutes so water soaks in instead of running off (slopes, clay). 0 (the
+  default) turns cycle and soak off.
+- **Soak time** — the least time each zone rests between its own cycles
+  (default 30 minutes).
+
+With cycle and soak on, Run all zones takes turns: each zone runs one cycle,
+then the next zone, round after round, so one zone soaks while the others
+water. It only adds a pause between rounds when the other zones' cycles
+don't already cover a zone's soak time. For example, with a 5 minute cycle and
+30 minute soak, three zones of 10 minutes each run 5 minutes each, wait 20
+minutes, then run their second 5 minutes. `start_zone` with `cycle_and_soak`
+does the same for a single zone.
+
+### Run events
+
+Each zone's **Run** event entity fires when the zone starts and finishes,
+whatever started it, so automations can react to (and the logbook shows)
+every run:
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: event.rain_bird_sprinkler_1_run
+conditions:
+  - condition: state
+    entity_id: event.rain_bird_sprinkler_1_run
+    attribute: event_type
+    state: finished
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      message: >
+        Front lawn watered for
+        {{ (state_attr('event.rain_bird_sprinkler_1_run', 'duration') / 60) | round }} min
+```
+
+`source` is `schedule` when the run matches the controller's schedule,
+`program` for a program started from Home Assistant, and `other` for anything
+else (such as the Rain Bird app).
 
 ### Rain Bird switches
 
@@ -80,7 +129,7 @@ Rain Bird library can read but not change it, each program's seasonal
 adjustment is a read-only **sensor** (`sensor.…_seasonal_adjustment_a`). Once
 Home Assistant ships pyrainbird 6.6 or newer, it becomes an adjustable
 **number** (`number.…_seasonal_adjustment_a`) automatically, and the old
-sensors can be deleted. Controllers without water budgets show a single
+sensors are removed. Controllers without water budgets show a single
 read-only sensor from the controller state, if they report it.
 
 ## Requirements
@@ -158,8 +207,9 @@ so you don't get each zone twice; the switches are disabled by default.
 - Rain Bird only accepts whole minutes, so runtimes are rounded to the minute.
 - The valve runtime number is in seconds because that is what HomeKit's Set
   Duration uses.
-- **Run all zones** is run by Home Assistant, one zone at a time (the
-  controller can't queue manual runs). Starting another zone, a program, or
+- **Run all zones** (and cycle and soak) is run by Home Assistant, one zone
+  at a time (the controller can't queue manual runs), so Home Assistant has to
+  stay running until it finishes. Starting another zone, a program, or
   stopping irrigation ends it, as does a zone being stopped early from the
   Rain Bird app.
 - **Next run** follows the programmed start times and zone order, and skips
@@ -168,7 +218,8 @@ so you don't get each zone twice; the switches are disabled by default.
 - **Water used** is an estimate: run time × the flow rate you enter. Use your
   water meter or a test run to find each zone's flow rate.
 - If Rain Bird reloads (for example after changing its options), Rain Bird
-  Extended reloads with it automatically.
+  Extended reloads with it automatically. If the Rain Bird entry is deleted,
+  **Settings → Repairs** shows an issue that removes Rain Bird Extended for it.
 
 ## Reporting a problem
 
