@@ -26,7 +26,11 @@
           "rain_delay_days": "Rain delay to set (days)",
           "run_all_zones": "Run all zones: zones and order",
           "cycle_minutes": "Cycle and soak: cycle length (minutes)",
-          "soak_minutes": "Cycle and soak: soak time (minutes)"
+          "soak_minutes": "Cycle and soak: soak time (minutes)",
+          "blowout_zones": "Blowout: zones and order",
+          "blowout_cycles": "Blowout: bursts per zone",
+          "blowout_on_minutes": "Blowout: burst length (minutes)",
+          "blowout_rest_seconds": "Blowout: rest between bursts (seconds)"
         },
         "data_description": {
           "disable_rainbird_switches": "Each zone's valve replaces its Rain Bird switch, so the switches are disabled to avoid having every zone twice (for example in HomeKit). Turn this off to keep both.",
@@ -36,7 +40,11 @@
           "rain_delay_days": "Only raised, never shortened, if a longer rain delay is already set.",
           "run_all_zones": "Zone numbers in the order to run them, separated by commas (for example 3, 1, 2). Leave empty to run every zone in order.",
           "cycle_minutes": "Run all zones (and start_zone with cycle and soak) split each zone's run into cycles of at most this long, taking turns between zones. 0 turns cycle and soak off.",
-          "soak_minutes": "The least time each zone rests between its cycles."
+          "soak_minutes": "The least time each zone rests between its cycles.",
+          "blowout_zones": "Zone numbers in the order to blow them out, separated by commas. Leave empty for every zone in order.",
+          "blowout_cycles": "How many times each zone is opened.",
+          "blowout_on_minutes": "How long each burst runs. Rain Bird runs zones in whole minutes.",
+          "blowout_rest_seconds": "Pause after every burst (also between zones) so the compressor can recover."
         }
       }
     },
@@ -57,6 +65,9 @@
           },
           "run_all_zones": {
             "name": "Run all zones"
+          },
+          "blowout": {
+            "name": "Blowout"
           }
         }
       }
@@ -70,6 +81,9 @@
       },
       "stop_irrigation": {
         "name": "Stop irrigation"
+      },
+      "blowout": {
+        "name": "Blowout sprinklers"
       }
     },
     "event": {
@@ -89,7 +103,8 @@
               "run_all_zones": "Run all zones",
               "program": "Program",
               "schedule": "Schedule",
-              "other": "Other"
+              "other": "Other",
+              "blowout": "Blowout"
             }
           }
         }
@@ -126,7 +141,8 @@
               "run_all_zones": "Run all zones",
               "program": "Program",
               "schedule": "Schedule",
-              "other": "Other"
+              "other": "Other",
+              "blowout": "Blowout"
             }
           }
         }
@@ -170,6 +186,28 @@
         "cycle_and_soak": {
           "name": "Cycle and soak",
           "description": "Split the run into cycles with soaks between them, using the cycle and soak times from the options."
+        }
+      }
+    },
+    "blowout": {
+      "name": "Blowout sprinklers",
+      "description": "Winterize with an air compressor: open each zone in short bursts with a rest after each one, one zone after another. Fields left out use the Blowout settings in the options.",
+      "fields": {
+        "zones": {
+          "name": "Zones",
+          "description": "Zone numbers to blow out, in order. Leave out for the zones in the options."
+        },
+        "cycles": {
+          "name": "Bursts per zone",
+          "description": "How many times each zone is opened."
+        },
+        "on_time": {
+          "name": "Burst length",
+          "description": "How long each burst runs, in whole minutes."
+        },
+        "rest": {
+          "name": "Rest",
+          "description": "Pause after every burst, including between zones."
         }
       }
     }

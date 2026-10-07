@@ -13,3 +13,29 @@ start_zone:
       default: false
       selector:
         boolean:
+
+blowout:
+  target:
+    entity:
+      integration: rainbird_extended
+      domain: button
+  fields:
+    zones:
+      example: "[1, 2, 3, 4]"
+      selector:
+        object:
+    cycles:
+      example: 10
+      selector:
+        number:
+          min: 1
+          max: 50
+          mode: box
+    on_time:
+      example: "00:01:00"
+      selector:
+        duration:
+    rest:
+      example: "00:02:30"
+      selector:
+        duration:

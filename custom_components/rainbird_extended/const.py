@@ -73,3 +73,18 @@ CONF_CYCLE_MINUTES = "cycle_minutes"
 CONF_SOAK_MINUTES = "soak_minutes"
 DEFAULT_SOAK_MINUTES = 30
 ATTR_CYCLE_AND_SOAK = "cycle_and_soak"
+
+# Blowout (winterizing with an air compressor): short bursts per zone with a
+# rest between them so the compressor can recover.
+CONF_BLOWOUT_ZONES = "blowout_zones"
+CONF_BLOWOUT_CYCLES = "blowout_cycles"
+CONF_BLOWOUT_ON_MINUTES = "blowout_on_minutes"
+CONF_BLOWOUT_REST_SECONDS = "blowout_rest_seconds"
+DEFAULT_BLOWOUT_CYCLES = 10
+DEFAULT_BLOWOUT_ON_MINUTES = 1
+DEFAULT_BLOWOUT_REST_SECONDS = 150
+SERVICE_BLOWOUT = "blowout"
+ATTR_ZONES = "zones"
+ATTR_CYCLES = "cycles"
+ATTR_ON_TIME = "on_time"
+ATTR_REST = "rest"

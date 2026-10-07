@@ -11,6 +11,7 @@ import logging
 
 import voluptuous as vol
 
+from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
 from homeassistant.components.valve import DOMAIN as VALVE_DOMAIN
 from homeassistant.config_entries import (
     SIGNAL_CONFIG_ENTRY_CHANGED,
@@ -19,8 +20,12 @@ from homeassistant.config_entries import (
     ConfigEntryState,
 )
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import (
+    ConfigEntryError,
+    ConfigEntryNotReady,
+    ServiceValidationError,
+)
 from homeassistant.helpers import (
     config_validation as cv,
     entity_registry as er,
@@ -28,11 +33,16 @@ from homeassistant.helpers import (
     service,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     ATTR_CYCLE_AND_SOAK,
+    ATTR_CYCLES,
     ATTR_DURATION,
+    ATTR_ON_TIME,
+    ATTR_REST,
+    ATTR_ZONES,
     CONF_DISABLE_RAINBIRD_SWITCHES,
     CONF_RAINBIRD_ENTRY_ID,
     DEFAULT_DISABLE_RAINBIRD_SWITCHES,
@@ -40,6 +50,7 @@ from .const import (
     RAINBIRD_DOMAIN,
     RUNTIME_MAX_SECONDS,
     RUNTIME_MIN_SECONDS,
+    SERVICE_BLOWOUT,
     SERVICE_START_ZONE,
 )
 from .coordinator import RainbirdExtendedCoordinator
@@ -108,7 +119,44 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         },
         func="async_start_zone",
     )
+    service.async_register_platform_entity_service(
+        hass,
+        DOMAIN,
+        SERVICE_BLOWOUT,
+        entity_domain=BUTTON_DOMAIN,
+        schema={
+            vol.Optional(ATTR_ZONES): vol.All(
+                cv.ensure_list, [vol.All(vol.Coerce(int), vol.Range(min=1))]
+            ),
+            vol.Optional(ATTR_CYCLES): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=50)
+            ),
+            vol.Optional(ATTR_ON_TIME): vol.All(
+                cv.time_period,
+                vol.Range(min=timedelta(minutes=1), max=timedelta(minutes=10)),
+            ),
+            vol.Optional(ATTR_REST): vol.All(
+                cv.time_period,
+                vol.Range(min=timedelta(0), max=timedelta(minutes=30)),
+            ),
+        },
+        func=_async_blowout_service,
+    )
     return True
+
+
+async def _async_blowout_service(entity: Entity, call: ServiceCall) -> None:
+    """Run rainbird_extended.blowout on the Blowout sprinklers button."""
+    if not hasattr(entity, "async_blowout"):
+        raise ServiceValidationError(
+            f"{entity.entity_id} isn't a Rain Bird Extended Blowout sprinklers button"
+        )
+    await entity.async_blowout(
+        zones=call.data.get(ATTR_ZONES),
+        cycles=call.data.get(ATTR_CYCLES),
+        on_time=call.data.get(ATTR_ON_TIME),
+        rest=call.data.get(ATTR_REST),
+    )
 
 
 async def async_setup_entry(

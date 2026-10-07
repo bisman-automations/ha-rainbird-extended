@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-07
+
+### Added
+
+- **Blowout sprinklers** button for winterizing with an air compressor: each
+  zone in turn is opened in short bursts with a rest after every burst.
+  Defaults: every zone in order, 10 one-minute bursts per zone, 150 second
+  rest. Zones and order, bursts, burst length and rest are in the options.
+- `rainbird_extended.blowout` action targeting that button, with optional
+  `zones`, `cycles`, `on_time` and `rest` overrides.
+- The Irrigating sensor has a `blowout` attribute, and runs started by a
+  blowout have `blowout` as their source.
+
 ## [1.2.0] - 2026-10-06
 
 ### Added
@@ -96,7 +109,8 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
-[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/bisman-automations/ha-rainbird-extended/releases/tag/v1.0.0

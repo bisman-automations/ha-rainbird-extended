@@ -29,6 +29,10 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_BLOWOUT_CYCLES,
+    CONF_BLOWOUT_ON_MINUTES,
+    CONF_BLOWOUT_REST_SECONDS,
+    CONF_BLOWOUT_ZONES,
     CONF_CYCLE_MINUTES,
     CONF_DISABLE_RAINBIRD_SWITCHES,
     CONF_RAIN_CHANCE,
@@ -38,6 +42,9 @@ from .const import (
     CONF_RUN_ALL_ZONES,
     CONF_SOAK_MINUTES,
     CONF_WEATHER_ENTITY,
+    DEFAULT_BLOWOUT_CYCLES,
+    DEFAULT_BLOWOUT_ON_MINUTES,
+    DEFAULT_BLOWOUT_REST_SECONDS,
     DEFAULT_DISABLE_RAINBIRD_SWITCHES,
     DEFAULT_RAIN_CHANCE,
     DEFAULT_RAIN_CHECK_TIME,
@@ -124,18 +131,20 @@ class RainbirdExtendedOptions(OptionsFlowWithReload):
         values: dict[str, Any] = dict(self.config_entry.options)
         if user_input is not None:
             values = dict(user_input)
-            try:
-                zones = _parse_zones(
-                    user_input.get(CONF_RUN_ALL_ZONES, ""), self._known_zones()
-                )
-            except ValueError:
-                errors[CONF_RUN_ALL_ZONES] = "invalid_zones"
-            else:
-                data = dict(user_input)
-                data[CONF_RUN_ALL_ZONES] = zones
+            data = dict(user_input)
+            for key in _ZONE_LIST_OPTIONS:
+                try:
+                    data[key] = _parse_zones(
+                        user_input.get(key, ""), self._known_zones()
+                    )
+                except ValueError:
+                    errors[key] = "invalid_zones"
+            if not errors:
                 return self.async_create_entry(data=data)
-        elif zones := values.get(CONF_RUN_ALL_ZONES):
-            values[CONF_RUN_ALL_ZONES] = ", ".join(str(zone) for zone in zones)
+        else:
+            for key in _ZONE_LIST_OPTIONS:
+                if zones := values.get(key):
+                    values[key] = ", ".join(str(zone) for zone in zones)
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(_OPTIONS_SCHEMA, values),
@@ -159,6 +168,8 @@ def _parse_zones(text: str, known: set[int] | None) -> list[int]:
     return zones
 
 
+_ZONE_LIST_OPTIONS = (CONF_RUN_ALL_ZONES, CONF_BLOWOUT_ZONES)
+
 _OPTIONS_SCHEMA = vol.Schema(
     {
         vol.Required(
@@ -180,6 +191,34 @@ _OPTIONS_SCHEMA = vol.Schema(
                 max=240,
                 step=1,
                 unit_of_measurement="min",
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(CONF_BLOWOUT_ZONES, default=""): TextSelector(),
+        vol.Required(
+            CONF_BLOWOUT_CYCLES, default=DEFAULT_BLOWOUT_CYCLES
+        ): NumberSelector(
+            NumberSelectorConfig(min=1, max=50, step=1, mode=NumberSelectorMode.BOX)
+        ),
+        vol.Required(
+            CONF_BLOWOUT_ON_MINUTES, default=DEFAULT_BLOWOUT_ON_MINUTES
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=1,
+                max=10,
+                step=1,
+                unit_of_measurement="min",
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Required(
+            CONF_BLOWOUT_REST_SECONDS, default=DEFAULT_BLOWOUT_REST_SECONDS
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=0,
+                max=1800,
+                step=15,
+                unit_of_measurement="s",
                 mode=NumberSelectorMode.BOX,
             )
         ),

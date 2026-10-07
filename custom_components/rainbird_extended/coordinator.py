@@ -34,11 +34,18 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_BLOWOUT_CYCLES,
+    CONF_BLOWOUT_ON_MINUTES,
+    CONF_BLOWOUT_REST_SECONDS,
+    CONF_BLOWOUT_ZONES,
     CONF_CYCLE_MINUTES,
     CONF_RUN_ALL_ZONES,
     CONF_SOAK_MINUTES,
     CONFIRM_DELAY,
     CONTROLLER_STATE_IDLE_REFRESH,
+    DEFAULT_BLOWOUT_CYCLES,
+    DEFAULT_BLOWOUT_ON_MINUTES,
+    DEFAULT_BLOWOUT_REST_SECONDS,
     DEFAULT_SOAK_MINUTES,
     DOMAIN,
     EARLY_STOP_MARGIN,
@@ -50,7 +57,7 @@ from .const import (
     START_GRACE_PERIOD,
     TIMEOUT_SECONDS,
 )
-from .sequence import Step, plan_steps
+from .sequence import Step, plan_blowout, plan_steps
 
 if TYPE_CHECKING:
     from homeassistant.components.rainbird.coordinator import (
@@ -63,6 +70,7 @@ _LOGGER = logging.getLogger(__name__)
 
 SOURCE_HOME_ASSISTANT = "home_assistant"
 SOURCE_RUN_ALL_ZONES = "run_all_zones"
+SOURCE_BLOWOUT = "blowout"
 SOURCE_PROGRAM = "program"
 SOURCE_SCHEDULE = "schedule"
 SOURCE_OTHER = "other"
@@ -644,6 +652,60 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             SOURCE_RUN_ALL_ZONES,
         )
 
+    @property
+    def blowout_running(self) -> bool:
+        """Whether a blowout is in progress."""
+        return self._sequence_active and self._sequence_source == SOURCE_BLOWOUT
+
+    def blowout_settings(self) -> tuple[list[int], int, int, int]:
+        """Zones, cycles, on seconds and rest seconds from the options."""
+        options = self.config_entry.options
+        configured = options.get(CONF_BLOWOUT_ZONES)
+        zones = list(self.linked_zones)
+        if configured:
+            zones = [zone for zone in configured if zone in self.linked_zones]
+            if skipped := [z for z in configured if z not in self.linked_zones]:
+                _LOGGER.warning("Blowout: skipping unknown zones %s", skipped)
+        return (
+            zones,
+            int(options.get(CONF_BLOWOUT_CYCLES, DEFAULT_BLOWOUT_CYCLES)),
+            int(options.get(CONF_BLOWOUT_ON_MINUTES, DEFAULT_BLOWOUT_ON_MINUTES)) * 60,
+            int(options.get(CONF_BLOWOUT_REST_SECONDS, DEFAULT_BLOWOUT_REST_SECONDS)),
+        )
+
+    async def async_blowout(
+        self,
+        zones: list[int] | None = None,
+        cycles: int | None = None,
+        on_seconds: int | None = None,
+        rest_seconds: int | None = None,
+    ) -> None:
+        """Blow out the zones: short bursts with rests, one zone after another.
+
+        Anything not given comes from the options.
+        """
+        default_zones, default_cycles, default_on, default_rest = (
+            self.blowout_settings()
+        )
+        if zones is not None:
+            if unknown := [zone for zone in zones if zone not in self.linked_zones]:
+                raise HomeAssistantError(f"Unknown zones: {unknown}")
+        else:
+            zones = default_zones
+        if not zones:
+            raise HomeAssistantError("No zones to blow out")
+        steps = plan_blowout(
+            zones,
+            default_cycles if cycles is None else cycles,
+            # Rain Bird runs zones in whole minutes.
+            max(
+                60, round((default_on if on_seconds is None else on_seconds) / 60) * 60
+            ),
+            default_rest if rest_seconds is None else rest_seconds,
+        )
+        _LOGGER.info("Blowout: %s bursts over zones %s", len(steps), zones)
+        await self._async_run_steps(steps, SOURCE_BLOWOUT)
+
     async def async_cycle_and_soak(self, zone: int, seconds: int) -> None:
         """Run one zone in cycles with soaks between (plain run if no cycle)."""
         cycle, soak = self._cycle_soak()
@@ -693,7 +755,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         try:
             await self._async_sequence_next()
         except HomeAssistantError as err:
-            _LOGGER.warning("Run all zones stopped: %s", err)
+            _LOGGER.warning("%s stopped: %s", self._sequence_source, err)
 
     @callback
     def _cancel_sequence(self) -> None:

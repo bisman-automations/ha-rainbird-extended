@@ -52,5 +52,7 @@ class RainbirdIrrigating(RainbirdExtendedControllerEntity, BinarySensorEntity):
         return {
             "zones": self._running,
             "end": max(ends).isoformat() if ends else None,
-            "run_all_zones": self.coordinator.sequence_running,
+            "run_all_zones": self.coordinator.sequence_running
+            and not self.coordinator.blowout_running,
+            "blowout": self.coordinator.blowout_running,
         }

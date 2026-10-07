@@ -24,7 +24,7 @@ devices, no second connection to the controller.
 | Time remaining | `sensor.rain_bird_sprinkler_1_time_remaining` | When the current run ends (timestamp — the UI shows a countdown like "in 4 minutes"). Unknown while idle. |
 | Next run | `sensor.rain_bird_sprinkler_1_next_run` | When the controller's schedule next runs this zone. Controllers with programs only. |
 | Last run | `sensor.rain_bird_sprinkler_1_last_run` | When the zone last started, however it was started. Attributes `end`, `duration` (seconds) and `source`. Remembered across restarts. |
-| Run | `event.rain_bird_sprinkler_1_run` | Fires `started` and `finished` for every run, with `source` (`home_assistant`, `run_all_zones`, `program`, `schedule` or `other`), `start`, and on finish `end` and `duration`. See [Run events](#run-events). |
+| Run | `event.rain_bird_sprinkler_1_run` | Fires `started` and `finished` for every run, with `source` (`home_assistant`, `run_all_zones`, `blowout`, `program`, `schedule` or `other`), `start`, and on finish `end` and `duration`. See [Run events](#run-events). |
 | Flow rate | `number.rain_bird_sprinkler_1_flow_rate` | How much water the zone uses per minute (L/min, or gal/min with US units). 0 = don't track water. |
 | Water used | `sensor.rain_bird_sprinkler_1_water_used` | Running total from run time × flow rate (L or gal). Add it to the Energy dashboard's water consumption. |
 
@@ -34,9 +34,10 @@ devices, no second connection to the controller.
 | --- | --- | --- |
 | Run program A, B, … | `button.rain_bird_controller_run_program_a` | Starts one of the controller's programs. One button per program the model supports. |
 | Run all zones | `button.rain_bird_controller_run_all_zones` | Runs the zones once, each for its valve runtime — every zone in order, or the zones and order set in the options, optionally with cycle and soak. See [Run all zones and cycle and soak](#run-all-zones-and-cycle-and-soak). |
+| Blowout sprinklers | `button.rain_bird_controller_blowout_sprinklers` | Winterizing with an air compressor: each zone in short bursts with a rest after each. See [Blowout sprinklers](#blowout-sprinklers). |
 | Stop irrigation | `button.rain_bird_controller_stop_irrigation` | Stops whatever is running, including Run all zones. |
 | Seasonal adjustment A, B, … | `number.rain_bird_controller_seasonal_adjustment_a` | Each program's seasonal adjust, 10–200% (100% = runtimes as programmed), re-read every 30 minutes. Controllers with one controller-wide value (ESP-RZXe, ST8) get a single **Seasonal adjustment**. See [Seasonal adjustment](#seasonal-adjustment). |
-| Irrigating | `binary_sensor.rain_bird_controller_irrigating` | On while any zone runs, however it was started. Attributes: `zones`, `end`, `run_all_zones`. |
+| Irrigating | `binary_sensor.rain_bird_controller_irrigating` | On while any zone runs, however it was started. Attributes: `zones`, `end`, `run_all_zones`, `blowout`. |
 | Rain skip | `switch.rain_bird_controller_rain_skip` | Only with a weather entity chosen in the options. See [Rain skip](#rain-skip). |
 
 ### Action: `rainbird_extended.start_zone`
@@ -71,6 +72,37 @@ don't already cover a zone's soak time. For example, with a 5 minute cycle and
 30 minute soak, three zones of 10 minutes each run 5 minutes each, wait 20
 minutes, then run their second 5 minutes. `start_zone` with `cycle_and_soak`
 does the same for a single zone.
+
+### Blowout sprinklers
+
+For winterizing: with an air compressor hooked up, press **Blowout
+sprinklers**. Each zone is opened in short bursts with a rest after every
+burst (so the compressor can recover), one zone after another. The defaults:
+
+| Option | Default |
+| --- | --- |
+| Blowout: zones and order | every zone, in zone order (or e.g. `3, 1, 2`) |
+| Blowout: bursts per zone | 10 |
+| Blowout: burst length | 1 minute (Rain Bird runs zones in whole minutes) |
+| Blowout: rest between bursts | 150 seconds, also between zones |
+
+With 4 zones that's about 2 hours 20 minutes. **Stop irrigation** (or closing
+any valve) ends it; the Irrigating sensor's `blowout` attribute shows it's
+running, and every burst fires the zone's Run event with source `blowout`.
+
+`rainbird_extended.blowout` does the same from an automation or script, and
+can override any setting for that run:
+
+```yaml
+action: rainbird_extended.blowout
+target:
+  entity_id: button.rain_bird_controller_blowout_sprinklers
+data:
+  zones: [1, 2, 3, 4]
+  cycles: 10
+  on_time: "00:01:00"
+  rest: "00:02:30"
+```
 
 ### Run events
 
@@ -207,9 +239,9 @@ so you don't get each zone twice; the switches are disabled by default.
 - Rain Bird only accepts whole minutes, so runtimes are rounded to the minute.
 - The valve runtime number is in seconds because that is what HomeKit's Set
   Duration uses.
-- **Run all zones** (and cycle and soak) is run by Home Assistant, one zone
-  at a time (the controller can't queue manual runs), so Home Assistant has to
-  stay running until it finishes. Starting another zone, a program, or
+- **Run all zones**, cycle and soak and **Blowout sprinklers** are run by
+  Home Assistant, one zone at a time (the controller can't queue manual runs),
+  so Home Assistant has to stay running until they finish. Starting another zone, a program, or
   stopping irrigation ends it, as does a zone being stopped early from the
   Rain Bird app.
 - **Next run** follows the programmed start times and zone order, and skips

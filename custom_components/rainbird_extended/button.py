@@ -1,6 +1,8 @@
-"""Controller buttons: run a program, run all zones, stop."""
+"""Controller buttons: run a program, run all zones, blowout, stop."""
 
 from __future__ import annotations
+
+from datetime import timedelta
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
@@ -21,6 +23,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     entities: list[Entity] = [
         RainbirdRunAllZones(coordinator),
+        RainbirdBlowout(coordinator),
         RainbirdStopIrrigation(coordinator),
     ]
     entities.extend(
@@ -59,6 +62,38 @@ class RainbirdRunAllZones(RainbirdExtendedControllerEntity, ButtonEntity):
     async def async_press(self) -> None:
         """Start the sequence."""
         await self.coordinator.async_run_all_zones()
+
+
+class RainbirdBlowout(RainbirdExtendedControllerEntity, ButtonEntity):
+    """Blow out the zones with compressed air, using the options' settings.
+
+    The rainbird_extended.blowout action targets this button to override them.
+    """
+
+    _attr_translation_key = "blowout"
+
+    def __init__(self, coordinator: RainbirdExtendedCoordinator) -> None:
+        """Initialize the button."""
+        super().__init__(coordinator, "blowout")
+
+    async def async_press(self) -> None:
+        """Start the blowout."""
+        await self.coordinator.async_blowout()
+
+    async def async_blowout(
+        self,
+        zones: list[int] | None = None,
+        cycles: int | None = None,
+        on_time: timedelta | None = None,
+        rest: timedelta | None = None,
+    ) -> None:
+        """Start a blowout, overriding the options where given."""
+        await self.coordinator.async_blowout(
+            zones,
+            cycles,
+            None if on_time is None else int(on_time.total_seconds()),
+            None if rest is None else int(rest.total_seconds()),
+        )
 
 
 class RainbirdStopIrrigation(RainbirdExtendedControllerEntity, ButtonEntity):

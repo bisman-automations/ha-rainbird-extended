@@ -69,3 +69,20 @@ def _soak_wait(
         )
         wait = max(wait, soak_seconds - gap)
     return wait
+
+
+def plan_blowout(
+    zones: list[int], cycles: int, on_seconds: int, rest_seconds: int
+) -> list[Step]:
+    """Each zone in turn: cycles bursts of on_seconds, resting between bursts.
+
+    The rest also separates one zone's last burst from the next zone's first,
+    so the compressor recovers before every burst; only the end has none.
+    """
+    steps: list[Step] = []
+    for zone in zones:
+        for _ in range(cycles):
+            if steps and rest_seconds > 0:
+                steps.append(Step(None, rest_seconds))
+            steps.append(Step(zone, on_seconds))
+    return steps

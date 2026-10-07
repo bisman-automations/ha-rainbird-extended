@@ -17,6 +17,9 @@
       },
       "stop_irrigation": {
         "default": "mdi:stop-circle-outline"
+      },
+      "blowout": {
+        "default": "mdi:weather-windy"
       }
     },
     "event": {
@@ -78,6 +81,9 @@
   "services": {
     "start_zone": {
       "service": "mdi:timer-play-outline"
+    },
+    "blowout": {
+      "service": "mdi:weather-windy"
     }
   }
 }
