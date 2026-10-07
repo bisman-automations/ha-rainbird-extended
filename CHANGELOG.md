@@ -6,8 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-07
+
 ### Changed
 
+- **Run all zones: zones and order** and **Blowout: zones and order** in the
+  options are now zone pickers: pick the zones, then drag them into order,
+  instead of typing zone numbers separated by commas. Saved orders carry over
+  unchanged, and the picker only offers this controller's zones.
 - Tested against both Home Assistant 2026.9 (pyrainbird 6.5) and 2026.10
   (pyrainbird 6.6). With 2026.10, seasonal adjustment is adjustable.
 
@@ -115,6 +121,7 @@ Initial release.
   when there are several.
 
 [Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.3.0...HEAD
+[1.3.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.0.0...v1.1.0

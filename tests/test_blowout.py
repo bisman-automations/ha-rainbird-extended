@@ -20,7 +20,7 @@ from custom_components.rainbird_extended.sequence import Step, plan_blowout
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
 from .test_v1_3 import _advance, _calls
@@ -192,13 +192,19 @@ async def test_options_flow_zones(
         "blowout_on_minutes": 1,
         CONF_BLOWOUT_REST_SECONDS: 150,
     }
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"], {**base, CONF_BLOWOUT_ZONES: ["valve.not_a_zone"]}
+        )
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {**base, CONF_BLOWOUT_ZONES: "2, 9"}
-    )
-    assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {CONF_BLOWOUT_ZONES: "invalid_zones"}
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {**base, CONF_BLOWOUT_ZONES: "2, 1"}
+        result["flow_id"],
+        {
+            **base,
+            CONF_BLOWOUT_ZONES: [
+                "valve.rain_bird_sprinkler_2",
+                "valve.rain_bird_sprinkler_1",
+            ],
+        },
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert extended_entry.options[CONF_BLOWOUT_ZONES] == [2, 1]

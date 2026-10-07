@@ -57,8 +57,8 @@ data:
 
 In Rain Bird Extended's options:
 
-- **Run all zones: zones and order** — zone numbers separated by commas, for
-  example `3, 1, 2`. Leave empty to run every zone in zone order.
+- **Run all zones: zones and order** — pick the zones to run, then drag them
+  into the order to run them. Leave empty to run every zone in zone order.
 - **Cycle length** — split each zone's run into cycles of at most this many
   minutes so water soaks in instead of running off (slopes, clay). 0 (the
   default) turns cycle and soak off.
@@ -81,7 +81,7 @@ burst (so the compressor can recover), one zone after another. The defaults:
 
 | Option | Default |
 | --- | --- |
-| Blowout: zones and order | every zone, in zone order (or e.g. `3, 1, 2`) |
+| Blowout: zones and order | every zone, in zone order (pick zones and drag them into order) |
 | Blowout: bursts per zone | 10 |
 | Blowout: burst length | 1 minute (Rain Bird runs zones in whole minutes) |
 | Blowout: rest between bursts | 150 seconds, also between zones |

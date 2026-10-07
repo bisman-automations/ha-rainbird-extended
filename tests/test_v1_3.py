@@ -32,7 +32,7 @@ from homeassistant.components.valve import (
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
@@ -260,25 +260,36 @@ async def test_scheduled_run_source(
 async def test_options_zone_order(
     hass: HomeAssistant, extended_entry: MockConfigEntry
 ) -> None:
-    """The zone list is validated and stored as numbers."""
-    for bad in ("1, 1", "9", "a, 2", "0"):
-        result = await hass.config_entries.options.async_init(extended_entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            {CONF_DISABLE_RAINBIRD_SWITCHES: False, CONF_RUN_ALL_ZONES: bad},
-        )
-        assert result["type"] is FlowResultType.FORM
-        assert result["errors"] == {CONF_RUN_ALL_ZONES: "invalid_zones"}
-
+    """Zones are picked by their valves in order, and stored as zone numbers."""
+    zone = "valve.rain_bird_sprinkler_{}".format
     result = await hass.config_entries.options.async_init(extended_entry.entry_id)
+    picker = result["data_schema"].schema[CONF_RUN_ALL_ZONES].config
+    assert picker["multiple"] and picker["reorder"]
+    assert picker["include_entities"] == [zone(1), zone(2), zone(3)]
+
+    # The picker only accepts this controller's zone valves.
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                CONF_DISABLE_RAINBIRD_SWITCHES: False,
+                CONF_RUN_ALL_ZONES: [zone(3), "valve.someone_else"],
+            },
+        )
+
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {CONF_DISABLE_RAINBIRD_SWITCHES: False, CONF_RUN_ALL_ZONES: "3, 1"},
+        {CONF_DISABLE_RAINBIRD_SWITCHES: False, CONF_RUN_ALL_ZONES: [zone(3), zone(1)]},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
     assert extended_entry.options[CONF_RUN_ALL_ZONES] == [3, 1]
     assert extended_entry.options[CONF_CYCLE_MINUTES] == 0
+
+    # Opening the options again shows the saved order as valves.
+    result = await hass.config_entries.options.async_init(extended_entry.entry_id)
+    key = next(k for k in result["data_schema"].schema if k == CONF_RUN_ALL_ZONES)
+    assert key.description["suggested_value"] == [zone(3), zone(1)]
 
 
 async def test_repair_when_rainbird_removed(

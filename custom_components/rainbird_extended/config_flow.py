@@ -8,12 +8,12 @@ import voluptuous as vol
 
 from homeassistant.config_entries import (
     ConfigEntry,
-    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlowWithReload,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
@@ -24,7 +24,6 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
-    TextSelector,
     TimeSelector,
 )
 
@@ -128,44 +127,55 @@ class RainbirdExtendedOptions(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Manage the options."""
         errors: dict[str, str] = {}
+        valves = zone_valves(self.hass, self.config_entry.entry_id)
+        zone_of = {entity_id: zone for zone, entity_id in valves.items()}
         values: dict[str, Any] = dict(self.config_entry.options)
         if user_input is not None:
             values = dict(user_input)
             data = dict(user_input)
             for key in _ZONE_LIST_OPTIONS:
-                try:
-                    data[key] = _parse_zones(
-                        user_input.get(key, ""), self._known_zones()
-                    )
-                except ValueError:
+                picked = user_input.get(key) or []
+                if any(entity_id not in zone_of for entity_id in picked):
                     errors[key] = "invalid_zones"
+                    continue
+                # Stored as zone numbers, in the order they were arranged.
+                data[key] = list(dict.fromkeys(zone_of[e] for e in picked))
             if not errors:
                 return self.async_create_entry(data=data)
         else:
             for key in _ZONE_LIST_OPTIONS:
-                if zones := values.get(key):
-                    values[key] = ", ".join(str(zone) for zone in zones)
+                values[key] = [
+                    valves[zone] for zone in values.get(key) or [] if zone in valves
+                ]
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(_OPTIONS_SCHEMA, values),
+            data_schema=self.add_suggested_values_to_schema(
+                _options_schema(list(valves.values())), values
+            ),
             errors=errors,
         )
 
-    def _known_zones(self) -> set[int] | None:
-        if self.config_entry.state is ConfigEntryState.LOADED:
-            return self.config_entry.runtime_data.zones
-        return None
+
+def zone_valves(hass: HomeAssistant, entry_id: str) -> dict[int, str]:
+    """Each zone's valve entity, in zone order (zone number -> entity id)."""
+    valves: dict[int, str] = {}
+    for entry in er.async_entries_for_config_entry(er.async_get(hass), entry_id):
+        if entry.domain != "valve" or entry.disabled_by is not None:
+            continue
+        # Zone valves have unique ids like "<controller>-<zone>-valve".
+        _, zone, key = entry.unique_id.rsplit("-", 2)
+        if key == "valve" and zone.isdigit():
+            valves[int(zone)] = entry.entity_id
+    return dict(sorted(valves.items()))
 
 
-def _parse_zones(text: str, known: set[int] | None) -> list[int]:
-    """Parse "3, 1, 2" into [3, 1, 2]; empty means every zone."""
-    parts = [part.strip() for part in text.replace(";", ",").split(",")]
-    zones = [int(part) for part in parts if part]
-    if len(set(zones)) != len(zones) or any(zone < 1 for zone in zones):
-        raise ValueError
-    if known is not None and any(zone not in known for zone in zones):
-        raise ValueError
-    return zones
+def _zone_picker(valves: list[str]) -> EntitySelector:
+    """Pick zones by their valves and drag them into order."""
+    return EntitySelector(
+        EntitySelectorConfig(
+            include_entities=valves, multiple=True, reorder=True, domain="valve"
+        )
+    )
 
 
 _ZONE_LIST_OPTIONS = (CONF_RUN_ALL_ZONES, CONF_BLOWOUT_ZONES)
@@ -175,7 +185,7 @@ _OPTIONS_SCHEMA = vol.Schema(
         vol.Required(
             CONF_DISABLE_RAINBIRD_SWITCHES, default=DEFAULT_DISABLE_RAINBIRD_SWITCHES
         ): bool,
-        vol.Optional(CONF_RUN_ALL_ZONES, default=""): TextSelector(),
+        vol.Optional(CONF_RUN_ALL_ZONES, default=list): _zone_picker([]),
         vol.Required(CONF_CYCLE_MINUTES, default=0): NumberSelector(
             NumberSelectorConfig(
                 min=0,
@@ -194,7 +204,7 @@ _OPTIONS_SCHEMA = vol.Schema(
                 mode=NumberSelectorMode.BOX,
             )
         ),
-        vol.Optional(CONF_BLOWOUT_ZONES, default=""): TextSelector(),
+        vol.Optional(CONF_BLOWOUT_ZONES, default=list): _zone_picker([]),
         vol.Required(
             CONF_BLOWOUT_CYCLES, default=DEFAULT_BLOWOUT_CYCLES
         ): NumberSelector(
@@ -244,3 +254,18 @@ _OPTIONS_SCHEMA = vol.Schema(
         ),
     }
 )
+
+
+def _options_schema(valves: list[str]) -> vol.Schema:
+    """The options, with the zone pickers limited to this controller's zones."""
+    picker = _zone_picker(valves)
+    return vol.Schema(
+        {
+            (
+                vol.Optional(key.schema, default=list)
+                if key in _ZONE_LIST_OPTIONS
+                else key
+            ): (picker if key in _ZONE_LIST_OPTIONS else value)
+            for key, value in _OPTIONS_SCHEMA.schema.items()
+        }
+    )

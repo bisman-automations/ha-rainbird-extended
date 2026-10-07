@@ -38,10 +38,10 @@
           "rain_chance": "Compared with today's precipitation probability. Forecasts without one count as wet when the condition is rainy.",
           "rain_check_time": "Pick a time before your programs start.",
           "rain_delay_days": "Only raised, never shortened, if a longer rain delay is already set.",
-          "run_all_zones": "Zone numbers in the order to run them, separated by commas (for example 3, 1, 2). Leave empty to run every zone in order.",
+          "run_all_zones": "Pick the zones to run, then drag them into the order to run them. Leave empty to run every zone in zone order.",
           "cycle_minutes": "Run all zones (and start_zone with cycle and soak) split each zone's run into cycles of at most this long, taking turns between zones. 0 turns cycle and soak off.",
           "soak_minutes": "The least time each zone rests between its cycles.",
-          "blowout_zones": "Zone numbers in the order to blow them out, separated by commas. Leave empty for every zone in order.",
+          "blowout_zones": "Pick the zones to blow out, then drag them into order. Leave empty for every zone in zone order.",
           "blowout_cycles": "How many times each zone is opened.",
           "blowout_on_minutes": "How long each burst runs. Rain Bird runs zones in whole minutes.",
           "blowout_rest_seconds": "Pause after every burst (also between zones) so the compressor can recover."
@@ -49,7 +49,7 @@
       }
     },
     "error": {
-      "invalid_zones": "Enter zone numbers separated by commas, each once, for zones this controller has."
+      "invalid_zones": "Pick only this controller's zones."
     }
   },
   "entity": {
