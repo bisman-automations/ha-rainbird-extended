@@ -14,6 +14,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.rainbird_extended.config_flow import nest
 from custom_components.rainbird_extended.const import CONF_DISABLE_RAINBIRD_SWITCHES
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.components.number import (
@@ -76,7 +77,7 @@ async def test_switches_disabled_by_default(
     result = await hass.config_entries.options.async_init(extended_entry.entry_id)
     assert result["type"] is FlowResultType.FORM
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_DISABLE_RAINBIRD_SWITCHES: False}
+        result["flow_id"], nest({CONF_DISABLE_RAINBIRD_SWITCHES: False})
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()

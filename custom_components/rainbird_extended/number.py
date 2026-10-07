@@ -83,7 +83,7 @@ class RainbirdZoneRuntime(RainbirdExtendedZoneEntity, RestoreNumber):
             last := await self.async_get_last_number_data()
         ) is not None and last.native_value is not None:
             self._attr_native_value = self._clamp(last.native_value)
-        self.coordinator.runtimes[self._zone] = int(self._attr_native_value)
+        self.coordinator.runtimes[self._zone] = int(self._attr_native_value or 0)
 
     async def async_set_native_value(self, value: float) -> None:
         """Set a new runtime, rounded to whole minutes."""
@@ -126,7 +126,7 @@ class RainbirdZoneFlowRate(RainbirdExtendedZoneEntity, RestoreNumber):
             last := await self.async_get_last_number_data()
         ) is not None and last.native_value is not None:
             self._attr_native_value = float(last.native_value)
-        self.coordinator.flow_rates[self._zone] = float(self._attr_native_value)
+        self.coordinator.flow_rates[self._zone] = float(self._attr_native_value or 0)
 
     async def async_set_native_value(self, value: float) -> None:
         """Set a new flow rate."""

@@ -30,7 +30,9 @@ jobs:
       - if: matrix.pins
         run: pip install --pre ${{ matrix.pins }}
       - run: ruff check . && ruff format --check .
-      - run: pytest
+      - if: "!matrix.pins"
+        run: mypy custom_components/rainbird_extended
+      - run: pytest --cov
 
   hassfest:
     runs-on: ubuntu-latest

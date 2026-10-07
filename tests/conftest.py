@@ -104,8 +104,12 @@ def controller(active_zones: set[int]) -> MagicMock:
     )
     controller.get_schedule = AsyncMock(side_effect=schedule)
     controller.set_program = AsyncMock()
-    controller.water_budget = AsyncMock(side_effect=lambda key: WaterBudget(key, 100))
-    controller.set_water_budget = AsyncMock()
+    # Seasonal adjust per program, 100% until set.
+    budgets: dict[int, int] = {}
+    controller.water_budget = AsyncMock(
+        side_effect=lambda key: WaterBudget(key, budgets.get(key, 100))
+    )
+    controller.set_water_budget = AsyncMock(side_effect=budgets.__setitem__)
     controller.set_rain_delay = AsyncMock()
     # Behave like the controller: starting a zone makes it the only active one.
     controller.irrigate_zone = AsyncMock(

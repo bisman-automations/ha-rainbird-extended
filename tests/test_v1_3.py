@@ -13,6 +13,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.rainbird_extended.config_flow import nest
 from custom_components.rainbird_extended.const import (
     CONF_CYCLE_MINUTES,
     CONF_DISABLE_RAINBIRD_SWITCHES,
@@ -20,6 +21,7 @@ from custom_components.rainbird_extended.const import (
     CONF_RUN_ALL_ZONES,
     CONF_SOAK_MINUTES,
     DOMAIN,
+    SECTION_RUN_ALL_ZONES,
 )
 from custom_components.rainbird_extended.repairs import async_create_fix_flow
 from custom_components.rainbird_extended.sequence import Step, plan_steps
@@ -263,7 +265,8 @@ async def test_options_zone_order(
     """Zones are picked by their valves in order, and stored as zone numbers."""
     zone = "valve.rain_bird_sprinkler_{}".format
     result = await hass.config_entries.options.async_init(extended_entry.entry_id)
-    picker = result["data_schema"].schema[CONF_RUN_ALL_ZONES].config
+    section = result["data_schema"].schema[SECTION_RUN_ALL_ZONES]
+    picker = section.schema.schema[CONF_RUN_ALL_ZONES].config
     assert picker["multiple"] and picker["reorder"]
     assert picker["include_entities"] == [zone(1), zone(2), zone(3)]
 
@@ -271,15 +274,22 @@ async def test_options_zone_order(
     with pytest.raises(InvalidData):
         await hass.config_entries.options.async_configure(
             result["flow_id"],
-            {
-                CONF_DISABLE_RAINBIRD_SWITCHES: False,
-                CONF_RUN_ALL_ZONES: [zone(3), "valve.someone_else"],
-            },
+            nest(
+                {
+                    CONF_DISABLE_RAINBIRD_SWITCHES: False,
+                    CONF_RUN_ALL_ZONES: [zone(3), "valve.someone_else"],
+                }
+            ),
         )
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {CONF_DISABLE_RAINBIRD_SWITCHES: False, CONF_RUN_ALL_ZONES: [zone(3), zone(1)]},
+        nest(
+            {
+                CONF_DISABLE_RAINBIRD_SWITCHES: False,
+                CONF_RUN_ALL_ZONES: [zone(3), zone(1)],
+            }
+        ),
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
@@ -288,7 +298,8 @@ async def test_options_zone_order(
 
     # Opening the options again shows the saved order as valves.
     result = await hass.config_entries.options.async_init(extended_entry.entry_id)
-    key = next(k for k in result["data_schema"].schema if k == CONF_RUN_ALL_ZONES)
+    fields = result["data_schema"].schema[SECTION_RUN_ALL_ZONES].schema.schema
+    key = next(k for k in fields if k == CONF_RUN_ALL_ZONES)
     assert key.description["suggested_value"] == [zone(3), zone(1)]
 
 

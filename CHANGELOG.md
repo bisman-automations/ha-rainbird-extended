@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Freeze skip** switch: with a weather entity and/or an outdoor temperature
+  sensor, sets the rain delay when today's low is at or below the freeze
+  temperature (default 35°F / 2°C), and with a sensor stops watering whenever
+  it reads freezing. Blowouts are never stopped. Fires
+  `rainbird_extended_freeze_skip`.
+- **Weather adjustment** switch (Home Assistant 2026.10+, starts off): sets
+  every program's seasonal adjustment daily from the forecast high, from 60%
+  at 60°F (15°C) to 150% at 95°F (35°C) by default. Fires
+  `rainbird_extended_weather_adjustment`.
+
+### Changed
+
+- The options are grouped into sections (Run all zones, Blowout, Weather,
+  Rain skip, Freeze skip, Weather adjustment). Saved options carry over.
+- The forecast check time is shared by rain skip, freeze skip and weather
+  adjustment.
+- CI also type checks with mypy and requires 90% test coverage.
+
 ## [1.3.1] - 2026-10-07
 
 ### Changed

@@ -9,6 +9,7 @@ from freezegun.api import FrozenDateTimeFactory
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.rainbird_extended.config_flow import nest
 from custom_components.rainbird_extended.const import (
     CONF_BLOWOUT_CYCLES,
     CONF_BLOWOUT_REST_SECONDS,
@@ -194,17 +195,20 @@ async def test_options_flow_zones(
     }
     with pytest.raises(InvalidData):
         await hass.config_entries.options.async_configure(
-            result["flow_id"], {**base, CONF_BLOWOUT_ZONES: ["valve.not_a_zone"]}
+            result["flow_id"],
+            nest({**base, CONF_BLOWOUT_ZONES: ["valve.not_a_zone"]}),
         )
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {
-            **base,
-            CONF_BLOWOUT_ZONES: [
-                "valve.rain_bird_sprinkler_2",
-                "valve.rain_bird_sprinkler_1",
-            ],
-        },
+        nest(
+            {
+                **base,
+                CONF_BLOWOUT_ZONES: [
+                    "valve.rain_bird_sprinkler_2",
+                    "valve.rain_bird_sprinkler_1",
+                ],
+            }
+        ),
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert extended_entry.options[CONF_BLOWOUT_ZONES] == [2, 1]

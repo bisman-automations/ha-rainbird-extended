@@ -20,3 +20,26 @@ force-sort-within-sections = true
 known-first-party = ["homeassistant", "custom_components", "tests"]
 combine-as-imports = true
 split-on-trailing-comma = false
+
+[tool.mypy]
+python_version = "3.14"
+check_untyped_defs = true
+disallow_incomplete_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+# Home Assistant swaps voluptuous for probatio at runtime, so schema types
+# from voluptuous don't line up with what Home Assistant's helpers expect.
+[[tool.mypy.overrides]]
+module = ["voluptuous", "voluptuous.*"]
+follow_imports = "skip"
+
+[tool.coverage.run]
+source = ["custom_components.rainbird_extended"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 90

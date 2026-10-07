@@ -39,6 +39,8 @@ devices, no second connection to the controller.
 | Seasonal adjustment A, B, … | `number.rain_bird_controller_seasonal_adjustment_a` | Each program's seasonal adjust, 10–200% (100% = runtimes as programmed), re-read every 30 minutes. Controllers with one controller-wide value (ESP-RZXe, ST8) get a single **Seasonal adjustment**. See [Seasonal adjustment](#seasonal-adjustment). |
 | Irrigating | `binary_sensor.rain_bird_controller_irrigating` | On while any zone runs, however it was started. Attributes: `zones`, `end`, `run_all_zones`, `blowout`. |
 | Rain skip | `switch.rain_bird_controller_rain_skip` | Only with a weather entity chosen in the options. See [Rain skip](#rain-skip). |
+| Freeze skip | `switch.rain_bird_controller_freeze_skip` | With a weather entity or temperature sensor chosen in the options. See [Freeze skip](#freeze-skip). |
+| Weather adjustment | `switch.rain_bird_controller_weather_adjustment` | With a weather entity chosen, on Home Assistant 2026.10 or newer. Starts off. See [Weather adjustment](#weather-adjustment). |
 
 ### Action: `rainbird_extended.start_zone`
 
@@ -143,6 +145,14 @@ removing Rain Bird Extended re-enables the ones it disabled.
 The valves map directly onto HomeKit's irrigation valve characteristics
 (Active, In Use, Set Duration, Remaining Duration).
 
+### Options
+
+**Settings → Devices & services → Rain Bird Extended → Configure.** The
+options are grouped into sections: Run all zones and cycle and soak, Blowout
+sprinklers, Weather (the forecast entity and the daily check time shared by
+rain skip, freeze skip and weather adjustment), Rain skip, Freeze skip and
+Weather adjustment. Temperatures are in your Home Assistant unit system.
+
 ### Rain skip
 
 Choose a weather entity in Rain Bird Extended's options to get a **Rain skip**
@@ -153,6 +163,40 @@ chance of rain but its condition is rainy, it sets the controller's rain delay
 (default 1 day). It never shortens a longer rain delay that's already set.
 Each skip fires a `rainbird_extended_rain_skip` event, and the switch's
 attributes show the last check, chance of rain and skip.
+
+### Freeze skip
+
+Choose a weather entity and/or an outdoor temperature sensor in the options
+to get a **Freeze skip** switch (on by default). While it's on:
+
+- Each day at the check time, if today's forecast low or the sensor is at or
+  below the freeze temperature (default 35°F / 2°C), it sets the controller's
+  rain delay (default 1 day), never shortening a longer one.
+- With a sensor, whenever it reads at or below the freeze temperature while
+  anything is watering (including Run all zones and cycle and soak), it stops
+  irrigation — also if a zone is started while it's freezing.
+- **Blowouts are never stopped** — they're air, and done in the cold.
+
+Each skip or stop fires a `rainbird_extended_freeze_skip` event with `reason`
+(`forecast` or `sensor`) and the temperature.
+
+### Weather adjustment
+
+On Home Assistant 2026.10 or newer, choosing a weather entity also adds a
+**Weather adjustment** switch. It **starts off**, because it changes your
+controller's settings every day. While it's on, each day at the check time it
+sets every program's seasonal adjustment from today's forecast high:
+
+| Forecast high | Seasonal adjustment |
+| --- | --- |
+| at or below the low temperature (default 60°F / 15°C) | the low percent (default 60%) |
+| between | in a straight line between, rounded to 5% |
+| at or above the high temperature (default 95°F / 35°C) | the high percent (default 150%) |
+
+For example, with the defaults a 77°F (25°C) day gets 105%. Each check fires
+a `rainbird_extended_weather_adjustment` event, and the switch's attributes
+show the last high and percent. You can still change Seasonal adjustment A, B,
+… yourself; the next check sets them again.
 
 ### Seasonal adjustment
 

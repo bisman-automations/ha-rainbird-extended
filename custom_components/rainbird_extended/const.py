@@ -56,10 +56,15 @@ SEASONAL_ADJUST_MIN = 10
 # and still be matched to it when working out time remaining.
 SCHEDULE_TOLERANCE = timedelta(minutes=2)
 
-# Rain skip options.
+# Weather options. The check time is shared by rain skip, freeze skip and
+# weather adjustment (the key predates the latter two).
 CONF_WEATHER_ENTITY = "weather_entity"
-CONF_RAIN_CHANCE = "rain_chance"
 CONF_RAIN_CHECK_TIME = "rain_check_time"
+# Temperature unit the temperature options were entered in.
+CONF_TEMPERATURE_UNIT = "temperature_unit"
+
+# Rain skip options.
+CONF_RAIN_CHANCE = "rain_chance"
 CONF_RAIN_DELAY_DAYS = "rain_delay_days"
 DEFAULT_RAIN_CHANCE = 60
 DEFAULT_RAIN_CHECK_TIME = "04:00:00"
@@ -88,3 +93,41 @@ ATTR_ZONES = "zones"
 ATTR_CYCLES = "cycles"
 ATTR_ON_TIME = "on_time"
 ATTR_REST = "rest"
+
+# Freeze skip: a rain delay (and stop watering) when it's cold.
+CONF_FREEZE_TEMPERATURE = "freeze_temperature"
+CONF_FREEZE_SENSOR = "freeze_sensor"
+CONF_FREEZE_DELAY_DAYS = "freeze_delay_days"
+DEFAULT_FREEZE_DELAY_DAYS = 1
+EVENT_FREEZE_SKIP = f"{DOMAIN}_freeze_skip"
+
+# Weather adjustment: seasonal adjust from the forecast high.
+CONF_ADJUST_LOW_TEMPERATURE = "adjust_low_temperature"
+CONF_ADJUST_LOW_PERCENT = "adjust_low_percent"
+CONF_ADJUST_HIGH_TEMPERATURE = "adjust_high_temperature"
+CONF_ADJUST_HIGH_PERCENT = "adjust_high_percent"
+DEFAULT_ADJUST_LOW_PERCENT = 60
+DEFAULT_ADJUST_HIGH_PERCENT = 150
+EVENT_WEATHER_ADJUSTMENT = f"{DOMAIN}_weather_adjustment"
+
+# Temperature defaults by unit: freeze, adjustment low and high.
+TEMPERATURE_DEFAULTS: dict[str, dict[str, float]] = {
+    "°F": {
+        CONF_FREEZE_TEMPERATURE: 35,
+        CONF_ADJUST_LOW_TEMPERATURE: 60,
+        CONF_ADJUST_HIGH_TEMPERATURE: 95,
+    },
+    "°C": {
+        CONF_FREEZE_TEMPERATURE: 2,
+        CONF_ADJUST_LOW_TEMPERATURE: 15,
+        CONF_ADJUST_HIGH_TEMPERATURE: 35,
+    },
+}
+
+# Option form sections.
+SECTION_RUN_ALL_ZONES = "run_all_zones_section"
+SECTION_BLOWOUT = "blowout_section"
+SECTION_WEATHER = "weather_section"
+SECTION_RAIN_SKIP = "rain_skip_section"
+SECTION_FREEZE_SKIP = "freeze_skip_section"
+SECTION_WEATHER_ADJUSTMENT = "weather_adjustment_section"

@@ -182,9 +182,9 @@ class RainbirdZoneWaterUsed(RainbirdExtendedZoneEntity, RestoreSensor):
         seconds = self.coordinator.run_seconds.get(self._zone, 0.0)
         if (delta := seconds - self._seen_seconds) > 0:
             flow = self.coordinator.flow_rates.get(self._zone, 0.0)
-            self._attr_native_value = round(
-                float(self._attr_native_value or 0) + flow * delta / 60, 3
-            )
+            total = self._attr_native_value
+            current = float(total) if isinstance(total, (int, float)) else 0.0
+            self._attr_native_value = round(current + flow * delta / 60, 3)
         self._seen_seconds = seconds
         super()._handle_coordinator_update()
 

@@ -67,6 +67,18 @@
         "state": {
           "off": "mdi:weather-cloudy"
         }
+      },
+      "freeze_skip": {
+        "default": "mdi:snowflake-alert",
+        "state": {
+          "off": "mdi:snowflake-off"
+        }
+      },
+      "weather_adjustment": {
+        "default": "mdi:thermometer-water",
+        "state": {
+          "off": "mdi:thermometer-off"
+        }
       }
     },
     "valve": {
