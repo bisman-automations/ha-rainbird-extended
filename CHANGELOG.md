@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-08
+
+### Fixed
+
+- **Run history** calendar showing nothing: a run recorded with no duration
+  (its expected end was from before it started, e.g. a late schedule slot on
+  the ARC8) made Home Assistant reject the whole calendar. Runs now always
+  get their real length, older records like that show as a minute, and an
+  unreadable record is skipped instead of breaking the calendar.
+- An error in one run listener (Run history, Run events) no longer stops run
+  tracking for the others.
+
 ## [1.4.0] - 2026-10-07
 
 ### Added
@@ -153,7 +165,8 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
-[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.2.0...v1.3.0

@@ -106,6 +106,9 @@ class ZoneRun:
 
 type RunListener = Callable[[str, ZoneRun], None]
 
+# Shortest run recorded (the controller's states are only seen once a minute).
+MIN_RUN = timedelta(seconds=1)
+
 # zone number -> when the current run is expected to end (None if unknown)
 type ZoneEndTimes = dict[int, datetime | None]
 
@@ -461,12 +464,19 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                 until = now
                 if zone not in running:
                     # Stopped since the last update. If it was due to end in
-                    # between, it ran until then rather than until now.
+                    # between, it ran until then rather than until now. An
+                    # expected end from before the run started is stale (for
+                    # example a schedule slot it started late for): ignore it.
+                    run = self.last_runs.get(zone)
                     prev_end = self._prev_end_times.get(zone)
-                    if prev_end is not None and prev_end < now:
+                    if (
+                        prev_end is not None
+                        and prev_end < now
+                        and (run is None or prev_end > run.start)
+                    ):
                         until = max(prev_end, self._last_tick)
-                    if (run := self.last_runs.get(zone)) and run.end is None:
-                        run.end = until
+                    if run is not None and run.end is None:
+                        run.end = max(until, run.start + MIN_RUN)
                         self._fire_run_event(zone, EVENT_FINISHED, run)
                 self.run_seconds[zone] = (
                     self.run_seconds.get(zone, 0.0)
@@ -498,7 +508,11 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
 
     def _fire_run_event(self, zone: int, event: str, run: ZoneRun) -> None:
         for listener in list(self._run_listeners.get(zone, [])):
-            listener(event, run)
+            # One listener failing must not stop run tracking or the others.
+            try:
+                listener(event, run)
+            except Exception:
+                _LOGGER.exception("Error handling %s run of zone %s", event, zone)
 
     @property
     def _schedule(self) -> Schedule | None:

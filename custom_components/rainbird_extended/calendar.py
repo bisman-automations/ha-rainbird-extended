@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from functools import partial
+import logging
 from typing import Any
 
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
@@ -26,6 +28,8 @@ from .coordinator import (
     ZoneRun,
 )
 from .entity import RainbirdExtendedControllerEntity, find_device
+
+_LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
 # Runs older than this are dropped.
@@ -108,6 +112,10 @@ class RainbirdRunHistory(RainbirdExtendedControllerEntity, CalendarEntity):
     def _event(
         self, zone: int, start: datetime, end: datetime, source: str, running: bool
     ) -> CalendarEvent:
+        # The controller is polled once a minute, so a run's recorded end can
+        # be at (or, for a stale expected end, before) its start. Calendar
+        # events must have a duration: show such runs as a minute long.
+        end = max(end, start + timedelta(minutes=1))
         minutes = max(1, round((end - start).total_seconds() / 60))
         started_by = SOURCE_TEXT.get(source, source)
         description = (
@@ -126,12 +134,15 @@ class RainbirdRunHistory(RainbirdExtendedControllerEntity, CalendarEntity):
     def _all_events(self) -> list[CalendarEvent]:
         events = []
         for record in self._runs:
-            start = dt_util.parse_datetime(record["start"])
-            end = dt_util.parse_datetime(record["end"])
-            if start and end:
-                events.append(
-                    self._event(record["zone"], start, end, record["source"], False)
-                )
+            try:
+                start = dt_util.parse_datetime(record["start"])
+                end = dt_util.parse_datetime(record["end"])
+                if start and end:
+                    events.append(
+                        self._event(record["zone"], start, end, record["source"], False)
+                    )
+            except (KeyError, TypeError, ValueError, HomeAssistantError) as err:
+                _LOGGER.debug("Skipping run history record %s: %s", record, err)
         # Runs still going, ending when expected (or now, if unknown).
         now = dt_util.utcnow()
         end_times = self.coordinator.data or {}
