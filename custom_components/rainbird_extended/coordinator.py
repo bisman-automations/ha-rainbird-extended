@@ -179,6 +179,8 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._controller_state_at: datetime | None = None
         # Runs started from Home Assistant, by zone.
         self._started: dict[int, _LocalRun] = {}
+        # Zones whose end time is only an estimate from their valve runtime.
+        self.estimated_zones: set[int] = set()
         # zone -> runtime in seconds, kept in sync by the number entities.
         self.runtimes: dict[int, int] = {}
         # zone -> flow rate per minute, kept in sync by the number entities.
@@ -418,6 +420,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                     seconds=controller_state.remaining_runtime
                 )
 
+        self.estimated_zones = set()
         return {
             zone: self._end_time(
                 zone,
@@ -425,6 +428,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                 zone in active,
                 controller_state is None,
                 previous.get(zone),
+                now=now,
             )
             for zone in active | set(self._started)
         }
@@ -436,6 +440,8 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         active: bool,
         no_controller_state: bool,
         previous: datetime | None,
+        *,
+        now: datetime,
     ) -> datetime | None:
         """Pick the best known end time for one zone."""
         end = reported
@@ -444,6 +450,18 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         if end is None and active:
             # The controller didn't say; work it out from the schedule.
             end = self.scheduled_end(zone)
+        if end is None and active and reported is None:
+            # Started some other way (the Rain Bird app, the core switch or
+            # its start_irrigation action): assume it runs for its valve
+            # runtime from when it was seen starting.
+            run = self.last_runs.get(zone)
+            start = run.start if run is not None and run.end is None else now
+            estimate = start + timedelta(seconds=self.runtime_for(zone))
+            if estimate <= now:
+                # Still running past the estimate: no longer known.
+                return None
+            self.estimated_zones.add(zone)
+            end = estimate
         if end is None and no_controller_state:
             # Controller busy or unsupported this round: keep what we had.
             end = previous

@@ -21,7 +21,7 @@ devices, no second connection to the controller.
 | --- | --- | --- |
 | Valve | `valve.rain_bird_sprinkler_1` | Water valve. Open runs the zone for its valve runtime; close stops irrigation. |
 | Valve runtime | `number.rain_bird_sprinkler_1_valve_runtime` | How long the zone runs when opened, in seconds (1 min steps, 1 min – 24 h). Remembered across restarts. |
-| Time remaining | `sensor.rain_bird_sprinkler_1_time_remaining` | When the current run ends (timestamp — the UI shows a countdown like "in 4 minutes"). Unknown while idle. |
+| Time remaining | `sensor.rain_bird_sprinkler_1_time_remaining` | When the current run ends (timestamp — the UI shows a countdown like "in 4 minutes"). Unknown while idle. Attribute `estimated`. See [How time remaining is worked out](#how-time-remaining-is-worked-out). |
 | Next run | `sensor.rain_bird_sprinkler_1_next_run` | When the controller's schedule next runs this zone. Controllers with programs only. |
 | Last run | `sensor.rain_bird_sprinkler_1_last_run` | When the zone last started, however it was started. Attributes `end`, `duration` (seconds) and `source`. Remembered across restarts. |
 | Run | `event.rain_bird_sprinkler_1_run` | Fires `started` and `finished` for every run, with `source` (`home_assistant`, `run_all_zones`, `blowout`, `program`, `schedule` or `other`), `start`, and on finish `end` and `duration`. See [Run events](#run-events). |
@@ -304,8 +304,14 @@ so you don't get each zone twice; the switches are disabled by default.
   detected once and not asked again. For them, time remaining comes from the
   controller's schedule: a zone running during one of its scheduled runs, or
   during a program started with a **Run program** button, ends when that run
-  should, with runtimes scaled by the program's seasonal adjustment. Runs
-  started from the Rain Bird app or the core switch stay unknown.
+  should, with runtimes scaled by the program's seasonal adjustment.
+- **Anything else** (the Rain Bird app, the core switch or its
+  `start_irrigation` action, or a schedule that can't be read): an estimate
+  of the zone's **valve runtime** from when it was seen starting. Changing the
+  valve runtime during the run moves the estimate right away. If the zone is
+  still running when the estimate runs out, time remaining goes back to
+  unknown rather than showing a time in the past. The sensor's `estimated`
+  attribute is `true` while it's showing an estimate.
 
 ## Things to know
 

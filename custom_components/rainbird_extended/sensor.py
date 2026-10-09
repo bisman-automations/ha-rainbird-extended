@@ -83,6 +83,11 @@ class RainbirdZoneTimeRemaining(RainbirdExtendedZoneEntity, SensorEntity):
             return None
         return self.coordinator.data.get(self._zone)
 
+    @property
+    def extra_state_attributes(self) -> dict[str, bool]:
+        """Whether the end is only estimated from the valve runtime."""
+        return {"estimated": self._zone in self.coordinator.estimated_zones}
+
 
 class RainbirdZoneNextRun(RainbirdExtendedZoneEntity, SensorEntity):
     """When the controller's schedule next runs this zone."""

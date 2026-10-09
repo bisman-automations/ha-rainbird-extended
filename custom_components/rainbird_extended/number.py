@@ -90,6 +90,9 @@ class RainbirdZoneRuntime(RainbirdExtendedZoneEntity, RestoreNumber):
         self._attr_native_value = self._clamp(value)
         self.coordinator.runtimes[self._zone] = int(self._attr_native_value)
         self.async_write_ha_state()
+        if self._zone in self.coordinator.estimated_zones:
+            # Its time remaining is estimated from the runtime: update it.
+            await self.coordinator.async_refresh()
 
     @staticmethod
     def _clamp(value: float) -> int:

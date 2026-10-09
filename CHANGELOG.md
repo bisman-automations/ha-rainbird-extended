@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-10-09
+
+### Changed
+
+- **Time remaining** for runs started outside Rain Bird Extended when the
+  controller doesn't report it and the schedule can't tell (for example on the
+  ARC8, from the Rain Bird app, the core switch or `start_irrigation`): now
+  estimated as the zone's valve runtime from when it started, instead of
+  unknown. Changing the valve runtime updates it right away; once the estimate
+  runs out while the zone is still running it goes back to unknown. A new
+  `estimated` attribute says when it's an estimate.
+
 ## [1.4.1] - 2026-10-08
 
 ### Fixed
@@ -165,7 +177,8 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
-[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.3.0...v1.3.1

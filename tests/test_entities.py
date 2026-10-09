@@ -162,6 +162,8 @@ async def test_controller_reported_remaining(
     assert dt_util.parse_datetime(hass.states.get(REMAINING).state) == end
 
 
+# Away from the test schedule (05:00-05:25 local), which would win.
+@pytest.mark.freeze_time("2026-10-09 20:00:00+00:00")
 @pytest.mark.parametrize("active_zones", [{2}])
 async def test_controller_without_remaining_support(
     hass: HomeAssistant,
@@ -169,13 +171,69 @@ async def test_controller_without_remaining_support(
     setup_integrations: MagicMock,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Controllers that NACK the request are only asked once."""
+    """Controllers that NACK the request are only asked once.
+
+    A run started elsewhere is then estimated to last its valve runtime.
+    """
     controller.get_combined_controller_state.side_effect = RainbirdDeviceNackError()
+    start = dt_util.utcnow()
     await _poll_core(hass, freezer)
     await _poll_core(hass, freezer)
     assert controller.get_combined_controller_state.await_count == 2  # setup + 1
     assert hass.states.get(VALVE).state == "open"
+    state = hass.states.get(REMAINING)
+    assert state.attributes["estimated"] is True
+    end = dt_util.parse_datetime(state.state)
+    assert abs(end - (start + timedelta(minutes=6))) < timedelta(seconds=5)
+
+
+# Away from the test schedule (05:00-05:25 local), which would win.
+@pytest.mark.freeze_time("2026-10-09 20:00:00+00:00")
+@pytest.mark.parametrize("active_zones", [{2}])
+async def test_estimate_follows_runtime_and_expires(
+    hass: HomeAssistant,
+    controller: MagicMock,
+    setup_integrations: MagicMock,
+    active_zones: set[int],
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The estimate updates with the valve runtime and is dropped once passed."""
+    controller.get_combined_controller_state.side_effect = RainbirdDeviceNackError()
+    start = dt_util.utcnow()
+    await _poll_core(hass, freezer)
+
+    # A longer runtime moves the estimated end right away.
+    await hass.services.async_call(
+        NUMBER_DOMAIN,
+        SERVICE_SET_VALUE,
+        {ATTR_ENTITY_ID: RUNTIME, ATTR_VALUE: 600},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    end = dt_util.parse_datetime(hass.states.get(REMAINING).state)
+    assert abs(end - (start + timedelta(minutes=10))) < timedelta(seconds=5)
+
+    # Still running after 10 minutes: no longer known.
+    for _ in range(10):
+        await _poll_core(hass, freezer)
     assert hass.states.get(REMAINING).state == STATE_UNKNOWN
+    assert hass.states.get(REMAINING).attributes["estimated"] is False
+
+    # Finished: unknown, and the run lasted its real length.
+    active_zones.clear()
+    await _poll_core(hass, freezer)
+    assert hass.states.get(REMAINING).state == STATE_UNKNOWN
+
+
+async def test_own_runs_are_not_estimates(
+    hass: HomeAssistant, setup_integrations: MagicMock
+) -> None:
+    """Runs started from the valve have a known end."""
+    await hass.services.async_call(
+        VALVE_DOMAIN, SERVICE_OPEN_VALVE, {ATTR_ENTITY_ID: VALVE}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(REMAINING).attributes["estimated"] is False
 
 
 async def test_busy_command(hass: HomeAssistant, setup_integrations: MagicMock) -> None:
