@@ -1,4 +1,4 @@
-"""Run history: every zone run as a calendar event."""
+"""Calendars: run history (every zone run) and the programs' schedule."""
 
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ from .coordinator import (
     ZoneRun,
 )
 from .entity import RainbirdExtendedControllerEntity, find_device
+from .programs import EVERY_DAYS_MAX
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,8 +52,23 @@ async def async_setup_entry(
     entry: RainbirdExtendedConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Add the run history calendar."""
-    async_add_entities([RainbirdRunHistory(entry.runtime_data)])
+    """Add the run history calendar, and the schedule if programs are set up."""
+    coordinator = entry.runtime_data
+    entities: list[CalendarEntity] = [RainbirdRunHistory(coordinator)]
+    if coordinator.programs:
+        entities.append(RainbirdProgramSchedule(coordinator))
+    async_add_entities(entities)
+
+
+def _zone_name(coordinator: RainbirdExtendedCoordinator, zone: int) -> str:
+    device = find_device(
+        coordinator.hass,
+        coordinator.rainbird_entry.entry_id,
+        f"{coordinator.rainbird_unique_id}-{zone}",
+    )
+    if device is not None and (name := device.name_by_user or device.name):
+        return name
+    return f"Zone {zone}"
 
 
 class RainbirdRunHistory(RainbirdExtendedControllerEntity, CalendarEntity):
@@ -99,16 +115,6 @@ class RainbirdRunHistory(RainbirdExtendedControllerEntity, CalendarEntity):
             self._store.async_delay_save(lambda: {"runs": self._runs}, SAVE_DELAY)
         self.async_write_ha_state()
 
-    def _zone_name(self, zone: int) -> str:
-        device = find_device(
-            self.hass,
-            self.coordinator.rainbird_entry.entry_id,
-            f"{self.coordinator.rainbird_unique_id}-{zone}",
-        )
-        if device is not None and (name := device.name_by_user or device.name):
-            return name
-        return f"Zone {zone}"
-
     def _event(
         self, zone: int, start: datetime, end: datetime, source: str, running: bool
     ) -> CalendarEvent:
@@ -124,7 +130,7 @@ class RainbirdRunHistory(RainbirdExtendedControllerEntity, CalendarEntity):
             else f"{minutes} min, started by {started_by}"
         )
         return CalendarEvent(
-            summary=self._zone_name(zone),
+            summary=_zone_name(self.coordinator, zone),
             start=dt_util.as_local(start),
             end=dt_util.as_local(end),
             description=description,
@@ -171,3 +177,48 @@ class RainbirdRunHistory(RainbirdExtendedControllerEntity, CalendarEntity):
             ),
             key=lambda e: e.start,
         )
+
+
+class RainbirdProgramSchedule(RainbirdExtendedControllerEntity, CalendarEntity):
+    """Upcoming runs of the programs set up in the options."""
+
+    _attr_translation_key = "schedule"
+
+    def __init__(self, coordinator: RainbirdExtendedCoordinator) -> None:
+        """Initialize the calendar."""
+        super().__init__(coordinator, "schedule")
+
+    def _events(self, start: datetime, end: datetime) -> list[CalendarEvent]:
+        now = dt_util.now()
+        if (timeline := self.coordinator.program_timeline(now)) is None:
+            return []
+        programs = {p.program: p for p in self.coordinator.programs}
+        events = []
+        for run in timeline.overlapping(start, end):
+            program = programs[run.program_id.program]
+            zones = ", ".join(_zone_name(self.coordinator, z) for z in program.zones)
+            events.append(
+                CalendarEvent(
+                    summary=program.title,
+                    start=dt_util.as_local(run.start),
+                    end=dt_util.as_local(
+                        max(run.end, run.start + timedelta(minutes=1))
+                    ),
+                    description=zones,
+                    uid=f"{program.program}-{run.start.isoformat()}",
+                )
+            )
+        return events
+
+    @property
+    def event(self) -> CalendarEvent | None:
+        """The program running now, or else the next one."""
+        now = dt_util.now()
+        events = self._events(now, now + timedelta(days=EVERY_DAYS_MAX + 1))
+        return events[0] if events else None
+
+    async def async_get_events(
+        self, hass: HomeAssistant, start_date: datetime, end_date: datetime
+    ) -> list[CalendarEvent]:
+        """Program runs in the requested range."""
+        return self._events(start_date, end_date)

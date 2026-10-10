@@ -14,6 +14,7 @@ from pytest_homeassistant_custom_component.common import (
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResult, FlowResultType
 from homeassistant.util import dt as dt_util
 
 
@@ -68,3 +69,14 @@ async def _press(hass: HomeAssistant, entity_id: str) -> None:
         BUTTON_DOMAIN, SERVICE_PRESS, {ATTR_ENTITY_ID: entity_id}, blocking=True
     )
     await hass.async_block_till_done()
+
+
+async def _open_options(
+    hass: HomeAssistant, entry_id: str, step: str = "settings"
+) -> FlowResult:
+    """Open the options and pick a step from the menu."""
+    result = await hass.config_entries.options.async_init(entry_id)
+    assert result["type"] is FlowResultType.MENU
+    return await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": step}
+    )

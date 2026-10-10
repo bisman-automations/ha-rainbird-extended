@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import section
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
+    DateSelector,
     EntitySelector,
     EntitySelectorConfig,
     NumberSelector,
@@ -25,6 +26,7 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TextSelector,
     TimeSelector,
 )
 
@@ -77,7 +79,30 @@ from .const import (
     SECTION_WEATHER_ADJUSTMENT,
     TEMPERATURE_DEFAULTS,
 )
+from .programs import (
+    CONF_DAYS,
+    CONF_EVERY_DAYS,
+    CONF_FREQUENCY,
+    CONF_PROGRAM_NAME,
+    CONF_SEASONAL_ADJUST,
+    CONF_START_DATE,
+    CONF_START_TIMES,
+    CONF_STATION_DELAY,
+    CONF_ZONES,
+    DEFAULT_EVERY_DAYS,
+    DEFAULT_SEASONAL_ADJUST,
+    EVERY_DAYS_MAX,
+    FREQUENCIES,
+    FREQUENCY_CUSTOM,
+    STATION_DELAY_MAX,
+    WEEKDAYS,
+    program_key,
+    program_letter,
+)
 from .weather import default_unit
+
+# Programs that can be set up in the options (A to D).
+MAX_PROGRAMS = 4
 
 
 class RainbirdExtendedConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -146,9 +171,88 @@ class RainbirdExtendedConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class RainbirdExtendedOptions(OptionsFlowWithReload):
-    """Rain Bird Extended options, shown in sections and stored flat."""
+    """Rain Bird Extended options, shown in sections and stored flat.
+
+    Controllers with programs get a menu: the settings, and a form for each
+    program (stored as one dict per program).
+    """
+
+    def _program_count(self) -> int:
+        coordinator = getattr(self.config_entry, "runtime_data", None)
+        return min(getattr(coordinator, "max_programs", 0) or 0, MAX_PROGRAMS)
 
     async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Pick what to change."""
+        if not (count := self._program_count()):
+            return await self.async_step_settings(user_input)
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["settings", *(program_key(i) for i in range(count))],
+        )
+
+    async def async_step_program_a(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Program A."""
+        return await self._async_program(0, user_input)
+
+    async def async_step_program_b(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Program B."""
+        return await self._async_program(1, user_input)
+
+    async def async_step_program_c(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Program C."""
+        return await self._async_program(2, user_input)
+
+    async def async_step_program_d(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Program D."""
+        return await self._async_program(3, user_input)
+
+    async def _async_program(
+        self, program: int, user_input: dict[str, Any] | None
+    ) -> ConfigFlowResult:
+        """A program's schedule, as set in the Rain Bird app."""
+        errors: dict[str, str] = {}
+        key = program_key(program)
+        valves = zone_valves(self.hass, self.config_entry.entry_id)
+        zone_of = {entity_id: zone for zone, entity_id in valves.items()}
+        schema = program_schema(list(valves.values()))
+        if user_input is not None:
+            data = dict(user_input)
+            picked = data.get(CONF_ZONES) or []
+            if any(entity_id not in zone_of for entity_id in picked):
+                errors["base"] = "invalid_zones"
+            elif data.get(CONF_FREQUENCY) == FREQUENCY_CUSTOM and not data.get(
+                CONF_DAYS
+            ):
+                errors[CONF_DAYS] = "no_days"
+            else:
+                data[CONF_ZONES] = sorted({zone_of[e] for e in picked})
+                return self.async_create_entry(
+                    data={**self.config_entry.options, key: data}
+                )
+            values = user_input
+        else:
+            values = dict(self.config_entry.options.get(key) or {})
+            values[CONF_ZONES] = [
+                valves[zone] for zone in values.get(CONF_ZONES) or [] if zone in valves
+            ]
+        return self.async_show_form(
+            step_id=key,
+            data_schema=self.add_suggested_values_to_schema(schema, values),
+            errors=errors,
+            description_placeholders={"program": program_letter(program)},
+        )
+
+    async def async_step_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
@@ -169,16 +273,27 @@ class RainbirdExtendedOptions(OptionsFlowWithReload):
                 data[key] = list(dict.fromkeys(zone_of[e] for e in picked))
             if not errors:
                 data[CONF_TEMPERATURE_UNIT] = unit
-                return self.async_create_entry(data=data)
+                # Keep the programs, which have forms of their own.
+                programs = {
+                    key: value
+                    for key, value in self.config_entry.options.items()
+                    if key.startswith("program_")
+                }
+                return self.async_create_entry(data={**programs, **data})
             values = user_input
         else:
+            options = {
+                key: value
+                for key, value in options.items()
+                if not key.startswith("program_")
+            }
             for key in _ZONE_LIST_OPTIONS:
                 options[key] = [
                     valves[zone] for zone in options.get(key) or [] if zone in valves
                 ]
             values = nest(options)
         return self.async_show_form(
-            step_id="init",
+            step_id="settings",
             data_schema=self.add_suggested_values_to_schema(schema, values),
             errors=errors,
         )
@@ -218,6 +333,46 @@ def _number(
 
 
 _ZONE_LIST_OPTIONS = (CONF_RUN_ALL_ZONES, CONF_BLOWOUT_ZONES)
+
+
+def program_schema(valves: list[str]) -> vol.Schema:
+    """A program's form, laid out like the Rain Bird app."""
+    return vol.Schema(
+        {
+            vol.Optional(CONF_PROGRAM_NAME): TextSelector(),
+            vol.Required(CONF_FREQUENCY, default=FREQUENCY_CUSTOM): SelectSelector(
+                SelectSelectorConfig(
+                    options=list(FREQUENCIES),
+                    mode=SelectSelectorMode.LIST,
+                    translation_key="frequency",
+                )
+            ),
+            vol.Optional(CONF_DAYS, default=list(WEEKDAYS)): SelectSelector(
+                SelectSelectorConfig(
+                    options=list(WEEKDAYS),
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                    translation_key="weekday",
+                )
+            ),
+            vol.Required(CONF_EVERY_DAYS, default=DEFAULT_EVERY_DAYS): _number(
+                1, EVERY_DAYS_MAX, 1, "days"
+            ),
+            vol.Optional(CONF_START_DATE): DateSelector(),
+            **{vol.Optional(key): TimeSelector() for key in CONF_START_TIMES},
+            vol.Optional(CONF_ZONES, default=list): EntitySelector(
+                EntitySelectorConfig(
+                    include_entities=valves, multiple=True, domain="valve"
+                )
+            ),
+            vol.Required(CONF_STATION_DELAY, default=0): _number(
+                0, STATION_DELAY_MAX, 1, "s"
+            ),
+            vol.Required(
+                CONF_SEASONAL_ADJUST, default=DEFAULT_SEASONAL_ADJUST
+            ): _number(5, 200, 1, "%"),
+        }
+    )
 
 
 def options_schema(valves: list[str], unit: str) -> vol.Schema:

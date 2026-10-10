@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-10
+
+### Added
+
+- **Programs** in the options, for controllers whose schedule can't be read
+  (such as the ARC8): **Configure** now opens a menu with **Settings** and a
+  form for each program (A, B, C, up to what the controller has), with the
+  Rain Bird app's choices: Custom days, Odd, Even or Cyclic (every N days
+  from a start date), up to four start times, stations, delay between
+  stations and seasonal adjustment. Stations run for their zone's valve
+  runtime.
+- **Schedule** calendar with the upcoming runs of those programs, skipping
+  rain delay days.
+
+### Changed
+
+- With programs set up, **Estimated next run**, **Time remaining**, run
+  sources and **Run program** follow them instead of the controller's
+  schedule.
+
 ## [1.5.0] - 2026-10-10
 
 ### Added
@@ -194,7 +214,8 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
-[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.0...v1.4.1

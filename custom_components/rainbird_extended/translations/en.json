@@ -18,6 +18,16 @@
     "step": {
       "init": {
         "title": "Rain Bird Extended",
+        "menu_options": {
+          "settings": "Settings",
+          "program_a": "Program A",
+          "program_b": "Program B",
+          "program_c": "Program C",
+          "program_d": "Program D"
+        }
+      },
+      "settings": {
+        "title": "Settings",
         "data": {
           "disable_rainbird_switches": "Disable the Rain Bird zone switches"
         },
@@ -116,10 +126,111 @@
             "data_description": {}
           }
         }
+      },
+      "program_a": {
+        "title": "Program {program}",
+        "description": "Enter Program {program} as it's set in the Rain Bird app, for controllers whose schedule can't be read (the ARC8, for one). It shows on the Schedule calendar and sets each zone's next run and time remaining. This doesn't change the controller, which runs the program itself. A program without zones or start times is off.",
+        "data": {
+          "name": "Name",
+          "frequency": "Frequency",
+          "days": "Days (Custom)",
+          "every_days": "Water every (Cyclic)",
+          "start_date": "Start date (Cyclic)",
+          "start_time_1": "Start time",
+          "start_time_2": "Second start time",
+          "start_time_3": "Third start time",
+          "start_time_4": "Fourth start time",
+          "zones": "Stations",
+          "station_delay": "Delay between stations (seconds)",
+          "seasonal_adjust": "Seasonal adjustment"
+        },
+        "data_description": {
+          "name": "Optional, for example Normal Watering.",
+          "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
+          "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
+          "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
+          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+        }
+      },
+      "program_b": {
+        "title": "Program {program}",
+        "description": "Enter Program {program} as it's set in the Rain Bird app, for controllers whose schedule can't be read (the ARC8, for one). It shows on the Schedule calendar and sets each zone's next run and time remaining. This doesn't change the controller, which runs the program itself. A program without zones or start times is off.",
+        "data": {
+          "name": "Name",
+          "frequency": "Frequency",
+          "days": "Days (Custom)",
+          "every_days": "Water every (Cyclic)",
+          "start_date": "Start date (Cyclic)",
+          "start_time_1": "Start time",
+          "start_time_2": "Second start time",
+          "start_time_3": "Third start time",
+          "start_time_4": "Fourth start time",
+          "zones": "Stations",
+          "station_delay": "Delay between stations (seconds)",
+          "seasonal_adjust": "Seasonal adjustment"
+        },
+        "data_description": {
+          "name": "Optional, for example Normal Watering.",
+          "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
+          "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
+          "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
+          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+        }
+      },
+      "program_c": {
+        "title": "Program {program}",
+        "description": "Enter Program {program} as it's set in the Rain Bird app, for controllers whose schedule can't be read (the ARC8, for one). It shows on the Schedule calendar and sets each zone's next run and time remaining. This doesn't change the controller, which runs the program itself. A program without zones or start times is off.",
+        "data": {
+          "name": "Name",
+          "frequency": "Frequency",
+          "days": "Days (Custom)",
+          "every_days": "Water every (Cyclic)",
+          "start_date": "Start date (Cyclic)",
+          "start_time_1": "Start time",
+          "start_time_2": "Second start time",
+          "start_time_3": "Third start time",
+          "start_time_4": "Fourth start time",
+          "zones": "Stations",
+          "station_delay": "Delay between stations (seconds)",
+          "seasonal_adjust": "Seasonal adjustment"
+        },
+        "data_description": {
+          "name": "Optional, for example Normal Watering.",
+          "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
+          "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
+          "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
+          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+        }
+      },
+      "program_d": {
+        "title": "Program {program}",
+        "description": "Enter Program {program} as it's set in the Rain Bird app, for controllers whose schedule can't be read (the ARC8, for one). It shows on the Schedule calendar and sets each zone's next run and time remaining. This doesn't change the controller, which runs the program itself. A program without zones or start times is off.",
+        "data": {
+          "name": "Name",
+          "frequency": "Frequency",
+          "days": "Days (Custom)",
+          "every_days": "Water every (Cyclic)",
+          "start_date": "Start date (Cyclic)",
+          "start_time_1": "Start time",
+          "start_time_2": "Second start time",
+          "start_time_3": "Third start time",
+          "start_time_4": "Fourth start time",
+          "zones": "Stations",
+          "station_delay": "Delay between stations (seconds)",
+          "seasonal_adjust": "Seasonal adjustment"
+        },
+        "data_description": {
+          "name": "Optional, for example Normal Watering.",
+          "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
+          "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
+          "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
+          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+        }
       }
     },
     "error": {
-      "invalid_zones": "Pick only this controller's zones."
+      "invalid_zones": "Pick only this controller's zones.",
+      "no_days": "Pick at least one day for a Custom program."
     }
   },
   "entity": {
@@ -365,6 +476,9 @@
     "calendar": {
       "run_history": {
         "name": "Run history"
+      },
+      "schedule": {
+        "name": "Schedule"
       }
     }
   },
@@ -416,6 +530,27 @@
             "description": "The Rain Bird integration entry that {title} extends was removed, so its valves and other entities can't work.\\n\\nIf you set up Rain Bird again, remove {title} and add Rain Bird Extended again for the new controller. Select **Submit** to remove {title} now."
           }
         }
+      }
+    }
+  },
+  "selector": {
+    "frequency": {
+      "options": {
+        "custom": "Custom",
+        "odd": "Odd",
+        "even": "Even",
+        "cyclic": "Cyclic"
+      }
+    },
+    "weekday": {
+      "options": {
+        "sun": "Sunday",
+        "mon": "Monday",
+        "tue": "Tuesday",
+        "wed": "Wednesday",
+        "thu": "Thursday",
+        "fri": "Friday",
+        "sat": "Saturday"
       }
     }
   }

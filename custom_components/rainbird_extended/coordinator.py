@@ -58,6 +58,7 @@ from .const import (
     START_GRACE_PERIOD,
     TIMEOUT_SECONDS,
 )
+from .programs import ConfiguredProgram, parse_programs
 from .sequence import Step, plan_blowout, plan_steps
 
 if TYPE_CHECKING:
@@ -171,6 +172,11 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._water_budgets_at: datetime | None = None
         # (program index, local start) of a program started from here.
         self._manual_program: tuple[int, datetime] | None = None
+        # Programs set up in the options; when there are any they're used
+        # instead of the controller's schedule (which some can't share).
+        self.programs: list[ConfiguredProgram] = parse_programs(
+            dict(config_entry.options), self.max_programs
+        )
         # Rain Bird controllers handle one request at a time. Share the core
         # integration's lock when it has one so we never poll concurrently.
         self._device_lock: asyncio.Lock = (
@@ -521,11 +527,10 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             if self._sequence_active and zone == self._sequence_zone:
                 return self._sequence_source
             return SOURCE_HOME_ASSISTANT
-        if self._manual_program is not None and (schedule := self._schedule):
-            index, _ = self._manual_program
-            program = next((p for p in schedule.programs if p.program == index), None)
-            if program is not None and self._program_slot(program, zone):
-                return SOURCE_PROGRAM
+        if self._manual_program is not None and self._slot(
+            self._manual_program[0], zone
+        ):
+            return SOURCE_PROGRAM
         if self.scheduled_end(zone) is not None:
             return SOURCE_SCHEDULE
         return SOURCE_OTHER
@@ -544,10 +549,69 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             return None
         return self.schedule.data
 
-    def _budget_scale(self, program: int) -> float:
-        """How seasonal adjust stretches a program's runtimes (1.0 = as set)."""
+    def _budget_scale(
+        self, program: int, configured: ConfiguredProgram | None = None
+    ) -> float:
+        """How seasonal adjust stretches a program's runtimes (1.0 = as set).
+
+        The controller's value when it reports one, else the program's setting.
+        """
         percent = self.water_budgets.get(program, self.water_budgets.get(LCR_BUDGET))
+        if percent is None and configured is not None:
+            percent = configured.seasonal_adjust
         return (percent or 100) / 100
+
+    @property
+    def rain_delay_days(self) -> int:
+        """Days the controller's rain delay has left."""
+        try:
+            return int(getattr(self.rainbird.data, "rain_delay", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _configured_slot(
+        self, program: ConfiguredProgram, zone: int
+    ) -> tuple[timedelta, timedelta] | None:
+        """Offset and duration of a zone's run in a program from the options.
+
+        Its zones run one after another, in zone order, each for its valve
+        runtime scaled by seasonal adjust, with the station delay between them.
+        """
+        scale = self._budget_scale(program.program, program)
+        offset = timedelta()
+        for program_zone in program.zones:
+            duration = timedelta(seconds=self.runtime_for(program_zone) * scale)
+            if program_zone == zone:
+                return offset, duration
+            offset += duration + program.station_delay
+        return None
+
+    def program_length(self, program: ConfiguredProgram) -> timedelta:
+        """How long a program from the options runs, start to finish."""
+        last = self._configured_slot(program, program.zones[-1])
+        return last[0] + last[1] if last else timedelta()
+
+    def _slot(self, index: int, zone: int) -> tuple[timedelta, timedelta] | None:
+        """A zone's slot in a program, from the options or the controller."""
+        if self.programs:
+            configured = next((p for p in self.programs if p.program == index), None)
+            return self._configured_slot(configured, zone) if configured else None
+        if (schedule := self._schedule) is None:
+            return None
+        program = next((p for p in schedule.programs if p.program == index), None)
+        return self._program_slot(program, zone) if program else None
+
+    def program_timeline(self, now: datetime) -> ProgramTimeline | None:
+        """Every run of the programs set up in the options, whole programs."""
+        delay = self.rain_delay_days
+        iters: list[Iterable[SortableItem[Timespan, ProgramEvent]]] = [
+            program.recurrence(
+                start, now, timedelta(), self.program_length(program), delay_days=delay
+            )
+            for program in self.programs
+            for start in program.starts
+        ]
+        return ProgramTimeline(MergedIterable(iters)) if iters else None
 
     def _program_slot(
         self, program: Program, zone: int
@@ -567,10 +631,23 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         return None
 
     def _zone_timeline(self, zone: int, now: datetime) -> ProgramTimeline | None:
-        """Every scheduled run of a zone, from the controller's schedule."""
+        """Every scheduled run of a zone, from the options or the controller."""
+        iters: list[Iterable[SortableItem[Timespan, ProgramEvent]]] = []
+        if self.programs:
+            delay = self.rain_delay_days
+            for configured in self.programs:
+                if (slot := self._configured_slot(configured, zone)) is None:
+                    continue
+                offset, duration = slot
+                iters.extend(
+                    configured.recurrence(
+                        start, now, offset, duration, zone=zone, delay_days=delay
+                    )
+                    for start in configured.starts
+                )
+            return ProgramTimeline(MergedIterable(iters)) if iters else None
         if (schedule := self._schedule) is None:
             return None
-        iters: list[Iterable[SortableItem[Timespan, ProgramEvent]]] = []
         for program in schedule.programs:
             if (slot := self._program_slot(program, zone)) is None:
                 continue
@@ -600,7 +677,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         return ProgramTimeline(MergedIterable(iters)) if iters else None
 
     def next_run(self, zone: int) -> datetime | None:
-        """When the controller's schedule next runs this zone."""
+        """When the schedule next runs this zone."""
         now = dt_util.now()
         if (timeline := self._zone_timeline(zone, now)) is None:
             return None
@@ -614,10 +691,9 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         program started from here, and for scheduled runs.
         """
         now = dt_util.now()
-        if self._manual_program is not None and (schedule := self._schedule):
+        if self._manual_program is not None:
             index, started = self._manual_program
-            program = next((p for p in schedule.programs if p.program == index), None)
-            if program is not None and (slot := self._program_slot(program, zone)):
+            if slot := self._slot(index, zone):
                 offset, duration = slot
                 if started + offset - SCHEDULE_TOLERANCE <= now:
                     end = started + offset + duration

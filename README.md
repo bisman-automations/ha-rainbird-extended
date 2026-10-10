@@ -45,6 +45,7 @@ devices, no second connection to the controller.
 | Weather adjustment | `switch.rain_bird_controller_weather_adjustment` | With a weather entity chosen, on Home Assistant 2026.10 or newer. Starts off. See [Weather adjustment](#weather-adjustment). |
 | Soil moisture skip | `switch.rain_bird_controller_soil_moisture_skip` | With a soil moisture sensor chosen in the options. See [Soil moisture skip](#soil-moisture-skip). |
 | Run history | `calendar.rain_bird_controller_run_history` | Every run of every zone as a calendar event: how long, and what started it. See [Run history](#run-history). |
+| Schedule | `calendar.rain_bird_controller_schedule` | Upcoming runs of the programs set up in the options, one event per program run. Only there once a program is set up. See [Programs](#programs). |
 
 ### Action: `rainbird_extended.start_zone`
 
@@ -129,6 +130,32 @@ after the zone, with how long it ran and what started it (for example
 "12 min, started by the schedule"). A run in progress shows as the current
 event. History is kept for a year and survives restarts.
 
+### Programs
+
+Some controllers, the ARC8 for one, don't share their programs over the local
+connection, so Rain Bird's own schedule calendar stays empty and each zone's
+next run can only be estimated. Enter the programs as they're set in the Rain
+Bird app instead: **Configure → Program A** (B, C, up to the controller's
+number of programs), with the same choices as the app:
+
+- **Frequency**: Custom (pick the days of the week), Odd or Even (days of the
+  month), or Cyclic (water every so many days from a start date).
+- Up to four **start times**.
+- **Stations**: they run one after another in station order, each for its
+  zone's **Valve runtime**.
+- **Delay between stations**, in seconds.
+- **Seasonal adjustment**: scales the runtimes when the controller doesn't
+  report its own. With Automatic Seasonal Adjust on in the app it changes
+  every day, so this is an estimate; leave it at 100% if unsure.
+
+A program needs at least one station and one start time. Once one is set up,
+the **Schedule** calendar shows its upcoming runs ("Program A: Normal
+Watering"), each zone's **Estimated next run** and **Time remaining** follow
+it, runs it starts are recorded as started by the schedule, and **Run program
+A** knows which zones it runs. Programs set here are used instead of the
+controller's schedule. They don't change the controller: it still runs its
+own programs, so keep them in step with the app.
+
 ### Run events
 
 Each zone's **Run** event entity fires when the zone starts and finishes,
@@ -170,8 +197,9 @@ The valves map directly onto HomeKit's irrigation valve characteristics
 
 ### Options
 
-**Settings → Devices & services → Rain Bird Extended → Configure.** The
-options are grouped into sections: Run all zones and cycle and soak, Blowout
+**Settings → Devices & services → Rain Bird Extended → Configure.** For
+controllers with programs this opens a menu: **Settings**, and one entry per
+program (see [Programs](#programs)). The settings are grouped into sections: Run all zones and cycle and soak, Blowout
 sprinklers, Weather (the forecast entity and the daily check time shared by
 rain, freeze and soil moisture skip and weather adjustment), Rain skip, Freeze
 skip, Soil moisture skip and Weather adjustment. Temperatures are in your Home
@@ -329,8 +357,9 @@ so you don't get each zone twice; the switches are disabled by default.
   so Home Assistant has to stay running until they finish. Starting another zone, a program, or
   stopping irrigation ends it, as does a zone being stopped early from the
   Rain Bird app.
-- **Estimated next run** for controllers whose schedule can't be read (the
-  ARC8, or when you water from Home Assistant automations) is the last run's
+- **Estimated next run** for zones in no program, when the controller's
+  schedule can't be read and none are [set up](#programs) (the ARC8, or when
+  you water from Home Assistant automations), is the last run's
   start plus **Run every** days, moved on by whole intervals when a day was
   missed; set Run every to match how often the zone actually runs. Before a
   zone's first run it counts from when the integration started.

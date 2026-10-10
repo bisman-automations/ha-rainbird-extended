@@ -23,7 +23,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
-from .helpers import _advance, _calls, _press
+from .helpers import _advance, _calls, _open_options, _press
 
 BLOWOUT = "button.rain_bird_controller_blowout_sprinklers"
 STOP = "button.rain_bird_controller_stop_irrigation"
@@ -173,7 +173,7 @@ async def test_options_flow_zones(
     extended_entry: MockConfigEntry,
 ) -> None:
     """Blowout zones are parsed and checked like Run all zones'."""
-    result = await hass.config_entries.options.async_init(extended_entry.entry_id)
+    result = await _open_options(hass, extended_entry.entry_id)
     base = {
         CONF_DISABLE_RAINBIRD_SWITCHES: False,
         "cycle_minutes": 0,

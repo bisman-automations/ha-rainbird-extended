@@ -26,7 +26,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .conftest import controller_state
-from .helpers import _advance, _poll_core, _press
+from .helpers import _advance, _open_options, _poll_core, _press
 
 VALVE = "valve.rain_bird_sprinkler_2"
 SWITCH = "switch.rain_bird_sprinkler_2"
@@ -55,7 +55,7 @@ async def test_switches_disabled_by_default(
     assert hass.states.get(SWITCH) is None
     assert hass.states.get(VALVE).state == "closed"
 
-    result = await hass.config_entries.options.async_init(extended_entry.entry_id)
+    result = await _open_options(hass, extended_entry.entry_id)
     assert result["type"] is FlowResultType.FORM
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], nest({CONF_DISABLE_RAINBIRD_SWITCHES: False})

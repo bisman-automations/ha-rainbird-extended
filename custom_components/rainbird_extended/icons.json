@@ -107,6 +107,9 @@
     "calendar": {
       "run_history": {
         "default": "mdi:calendar-check"
+      },
+      "schedule": {
+        "default": "mdi:calendar-clock"
       }
     }
   },

@@ -26,7 +26,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.exceptions import HomeAssistantError
 
-from .helpers import _advance, _calls, _press
+from .helpers import _advance, _calls, _open_options, _press
 
 VALVE = "valve.rain_bird_sprinkler_2"
 MIN = 60
@@ -177,7 +177,7 @@ async def test_options_zone_order(
 ) -> None:
     """Zones are picked by their valves in order, and stored as zone numbers."""
     zone = "valve.rain_bird_sprinkler_{}".format
-    result = await hass.config_entries.options.async_init(extended_entry.entry_id)
+    result = await _open_options(hass, extended_entry.entry_id)
     section = result["data_schema"].schema[SECTION_RUN_ALL_ZONES]
     picker = section.schema.schema[CONF_RUN_ALL_ZONES].config
     assert picker["multiple"] and picker["reorder"]
@@ -210,7 +210,7 @@ async def test_options_zone_order(
     assert extended_entry.options[CONF_CYCLE_MINUTES] == 0
 
     # Opening the options again shows the saved order as valves.
-    result = await hass.config_entries.options.async_init(extended_entry.entry_id)
+    result = await _open_options(hass, extended_entry.entry_id)
     fields = result["data_schema"].schema[SECTION_RUN_ALL_ZONES].schema.schema
     key = next(k for k in fields if k == CONF_RUN_ALL_ZONES)
     assert key.description["suggested_value"] == [zone(3), zone(1)]
