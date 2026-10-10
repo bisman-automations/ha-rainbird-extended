@@ -6,6 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-10
+
+### Added
+
+- **Run every** number per zone (days, default 1): how often the zone runs.
+
+### Changed
+
+- **Next run** is now **Estimated next run** and is always set: from the
+  controller's schedule when it can be read, otherwise the last run's start
+  plus Run every, moved on by whole intervals past missed days. Attributes
+  `estimated` and `last_start`. Existing installs keep the `…_next_run`
+  entity id; new installs get `…_estimated_next_run`.
+- **Time remaining** shows when the last run ended while idle (kept across
+  restarts), instead of unknown. A run going past its estimated end shows
+  about a minute left until it's seen stopping, instead of unknown.
+
 ## [1.4.2] - 2026-10-09
 
 ### Changed
@@ -177,7 +194,8 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
-[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.3.1...v1.4.0

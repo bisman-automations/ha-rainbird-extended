@@ -34,7 +34,7 @@ RUNTIME = "number.rain_bird_sprinkler_2_valve_runtime"
 FLOW = "number.rain_bird_sprinkler_2_flow_rate"
 WATER = "sensor.rain_bird_sprinkler_2_water_used"
 LAST_RUN = "sensor.rain_bird_sprinkler_2_last_run"
-NEXT_RUN = "sensor.rain_bird_sprinkler_2_next_run"
+NEXT_RUN = "sensor.rain_bird_sprinkler_2_estimated_next_run"
 SEASONAL_A = "number.rain_bird_controller_seasonal_adjustment_a"
 SEASONAL_SENSOR = "sensor.rain_bird_controller_seasonal_adjustment"
 RUN_ALL = "button.rain_bird_controller_run_all_zones"
@@ -166,10 +166,12 @@ async def test_next_run(hass: HomeAssistant, setup_integrations: MagicMock) -> N
     if expected <= now:
         expected += timedelta(days=1)
     assert dt_util.parse_datetime(hass.states.get(NEXT_RUN).state) == expected
-    # Zone 3 isn't in any program.
-    assert hass.states.get("sensor.rain_bird_sprinkler_3_next_run").state == (
-        STATE_UNKNOWN
-    )
+    assert hass.states.get(NEXT_RUN).attributes["estimated"] is False
+    # Zone 3 isn't in any program: a day after it was first needed.
+    state = hass.states.get("sensor.rain_bird_sprinkler_3_estimated_next_run")
+    assert state.attributes["estimated"] is True
+    estimate = dt_util.parse_datetime(state.state)
+    assert timedelta(hours=23) < estimate - dt_util.utcnow() <= timedelta(days=1)
 
 
 async def test_seasonal_adjustment(

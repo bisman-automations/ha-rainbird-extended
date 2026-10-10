@@ -140,3 +140,9 @@ SECTION_RAIN_SKIP = "rain_skip_section"
 SECTION_FREEZE_SKIP = "freeze_skip_section"
 SECTION_WEATHER_ADJUSTMENT = "weather_adjustment_section"
 SECTION_MOISTURE_SKIP = "moisture_skip_section"
+
+# How often a zone runs, for its estimated next run when the controller's
+# schedule can't be read.
+INTERVAL_MIN_DAYS = 1
+INTERVAL_MAX_DAYS = 30
+DEFAULT_INTERVAL_DAYS = 1

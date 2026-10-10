@@ -206,6 +206,9 @@
       },
       "valve_runtime": {
         "name": "Valve runtime"
+      },
+      "run_interval": {
+        "name": "Run every"
       }
     },
     "sensor": {
@@ -232,7 +235,19 @@
         }
       },
       "next_run": {
-        "name": "Next run"
+        "name": "Estimated next run",
+        "state_attributes": {
+          "estimated": {
+            "name": "Estimated",
+            "state": {
+              "true": "Yes",
+              "false": "No"
+            }
+          },
+          "last_start": {
+            "name": "Counts from"
+          }
+        }
       },
       "seasonal_adjustment": {
         "name": "Seasonal adjustment"

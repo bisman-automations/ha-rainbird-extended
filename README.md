@@ -21,8 +21,9 @@ devices, no second connection to the controller.
 | --- | --- | --- |
 | Valve | `valve.rain_bird_sprinkler_1` | Water valve. Open runs the zone for its valve runtime; close stops irrigation. |
 | Valve runtime | `number.rain_bird_sprinkler_1_valve_runtime` | How long the zone runs when opened, in seconds (1 min steps, 1 min – 24 h). Remembered across restarts. |
-| Time remaining | `sensor.rain_bird_sprinkler_1_time_remaining` | When the current run ends (timestamp — the UI shows a countdown like "in 4 minutes"). Unknown while idle. Attribute `estimated`. See [How time remaining is worked out](#how-time-remaining-is-worked-out). |
-| Next run | `sensor.rain_bird_sprinkler_1_next_run` | When the controller's schedule next runs this zone. Controllers with programs only. |
+| Time remaining | `sensor.rain_bird_sprinkler_1_time_remaining` | When the current run ends (timestamp — the UI shows a countdown like "in 4 minutes"); while idle, when the last run ended. Attribute `estimated`. See [How time remaining is worked out](#how-time-remaining-is-worked-out). |
+| Estimated next run | `sensor.rain_bird_sprinkler_1_estimated_next_run` | When the zone next runs: from the controller's schedule when it can be read, otherwise the last run's start plus **Run every**. Attributes `estimated`, `last_start`. (Installed before 1.5.0, it keeps its `…_next_run` id.) |
+| Run every | `number.rain_bird_sprinkler_1_run_every` | How many days apart the zone runs (1–30, default 1), for the estimated next run. |
 | Last run | `sensor.rain_bird_sprinkler_1_last_run` | When the zone last started, however it was started. Attributes `end`, `duration` (seconds) and `source`. Remembered across restarts. |
 | Run | `event.rain_bird_sprinkler_1_run` | Fires `started` and `finished` for every run, with `source` (`home_assistant`, `run_all_zones`, `blowout`, `program`, `schedule` or `other`), `start`, and on finish `end` and `duration`. See [Run events](#run-events). |
 | Flow rate | `number.rain_bird_sprinkler_1_flow_rate` | How much water the zone uses per minute (L/min, or gal/min with US units). 0 = don't track water. |
@@ -309,9 +310,12 @@ so you don't get each zone twice; the switches are disabled by default.
   `start_irrigation` action, or a schedule that can't be read): an estimate
   of the zone's **valve runtime** from when it was seen starting. Changing the
   valve runtime during the run moves the estimate right away. If the zone is
-  still running when the estimate runs out, time remaining goes back to
-  unknown rather than showing a time in the past. The sensor's `estimated`
-  attribute is `true` while it's showing an estimate.
+  still running when the estimate runs out, it shows about a minute left until
+  the zone is seen stopping. The sensor's `estimated` attribute is `true` while
+  it's showing an estimate.
+- **While idle:** when the last run ended (a time in the past, so HomeKit shows
+  nothing left). It's kept across restarts, so it's only unknown before the
+  zone's first run.
 
 ## Things to know
 
@@ -325,7 +329,12 @@ so you don't get each zone twice; the switches are disabled by default.
   so Home Assistant has to stay running until they finish. Starting another zone, a program, or
   stopping irrigation ends it, as does a zone being stopped early from the
   Rain Bird app.
-- **Next run** follows the programmed start times and zone order, and skips
+- **Estimated next run** for controllers whose schedule can't be read (the
+  ARC8, or when you water from Home Assistant automations) is the last run's
+  start plus **Run every** days, moved on by whole intervals when a day was
+  missed; set Run every to match how often the zone actually runs. Before a
+  zone's first run it counts from when the integration started.
+- **Next run** from the schedule follows the programmed start times and zone order, and skips
   rain delay days. It doesn't account for seasonal adjustment changing how
   long earlier zones in the same program run.
 - **Water used** is an estimate: run time × the flow rate you enter. Use your

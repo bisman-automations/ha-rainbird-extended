@@ -15,8 +15,11 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import RainbirdExtendedConfigEntry
 from .const import (
+    DEFAULT_INTERVAL_DAYS,
     FLOW_RATE_MAX,
     FLOW_RATE_STEP,
+    INTERVAL_MAX_DAYS,
+    INTERVAL_MIN_DAYS,
     RUNTIME_MAX_SECONDS,
     RUNTIME_MIN_SECONDS,
     RUNTIME_STEP_SECONDS,
@@ -45,6 +48,7 @@ async def async_setup_entry(
         for entity in (
             RainbirdZoneRuntime(coordinator, zone),
             RainbirdZoneFlowRate(coordinator, zone, flow_unit),
+            RainbirdZoneInterval(coordinator, zone),
         )
     ]
     if coordinator.supports_water_budget and coordinator.can_set_water_budget:
@@ -168,3 +172,36 @@ class RainbirdSeasonalAdjustment(RainbirdExtendedControllerEntity, NumberEntity)
     async def async_set_native_value(self, value: float) -> None:
         """Set the seasonal adjustment."""
         await self.coordinator.async_set_water_budget(self._key, round(value))
+
+
+class RainbirdZoneInterval(RainbirdExtendedZoneEntity, RestoreNumber):
+    """How many days apart the zone runs, for its estimated next run."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_mode = NumberMode.BOX
+    _attr_native_min_value = INTERVAL_MIN_DAYS
+    _attr_native_max_value = INTERVAL_MAX_DAYS
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+    _attr_translation_key = "run_interval"
+
+    def __init__(self, coordinator: RainbirdExtendedCoordinator, zone: int) -> None:
+        """Initialize the interval number."""
+        super().__init__(coordinator, zone, "run_interval")
+        self._attr_native_value = DEFAULT_INTERVAL_DAYS
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the interval and share it with the next run sensor."""
+        await super().async_added_to_hass()
+        if (
+            last := await self.async_get_last_number_data()
+        ) is not None and last.native_value is not None:
+            self._attr_native_value = int(last.native_value)
+        self.coordinator.intervals[self._zone] = int(self._attr_native_value or 1)
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set a new interval."""
+        self._attr_native_value = int(value)
+        self.coordinator.intervals[self._zone] = int(value)
+        self.async_write_ha_state()
+        self.coordinator.async_update_listeners()

@@ -106,6 +106,9 @@ class ZoneRun:
 
 type RunListener = Callable[[str, ZoneRun], None]
 
+# Time remaining for a zone still running past its estimated end.
+OVERRUN_ESTIMATE = timedelta(minutes=1)
+
 # Shortest run recorded (the controller's states are only seen once a minute).
 MIN_RUN = timedelta(seconds=1)
 
@@ -181,6 +184,8 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._started: dict[int, _LocalRun] = {}
         # Zones whose end time is only an estimate from their valve runtime.
         self.estimated_zones: set[int] = set()
+        # zone -> days between runs, kept in sync by the number entities.
+        self.intervals: dict[int, int] = {}
         # zone -> runtime in seconds, kept in sync by the number entities.
         self.runtimes: dict[int, int] = {}
         # zone -> flow rate per minute, kept in sync by the number entities.
@@ -458,8 +463,9 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             start = run.start if run is not None and run.end is None else now
             estimate = start + timedelta(seconds=self.runtime_for(zone))
             if estimate <= now:
-                # Still running past the estimate: no longer known.
-                return None
+                # Still running past the estimate: about a minute left,
+                # until it's seen stopping.
+                estimate = now + OVERRUN_ESTIMATE
             self.estimated_zones.add(zone)
             end = estimate
         if end is None and no_controller_state:

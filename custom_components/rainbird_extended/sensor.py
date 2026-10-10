@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import math
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -15,9 +16,11 @@ from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from . import RainbirdExtendedConfigEntry
+from .const import DEFAULT_INTERVAL_DAYS
 from .coordinator import SOURCE_OTHER, RainbirdExtendedCoordinator, ZoneRun
 from .entity import (
     RainbirdExtendedControllerEntity,
@@ -29,6 +32,7 @@ from .entity import (
 ATTR_DURATION = "duration"
 ATTR_END = "end"
 ATTR_SOURCE = "source"
+ATTR_LAST_START = "last_start"
 
 
 async def async_setup_entry(
@@ -57,16 +61,19 @@ async def async_setup_entry(
                 RainbirdZoneWaterUsed(coordinator, zone, volume_unit),
             )
         )
-        if coordinator.schedule is not None and coordinator.max_programs:
-            entities.append(RainbirdZoneNextRun(coordinator, zone))
+        entities.append(RainbirdZoneNextRun(coordinator, zone))
     async_add_entities(entities)
 
 
-class RainbirdZoneTimeRemaining(RainbirdExtendedZoneEntity, SensorEntity):
-    """When the current run of this zone ends.
+class RainbirdZoneTimeRemaining(
+    RainbirdExtendedZoneEntity, RestoreEntity, SensorEntity
+):
+    """When the current run of this zone ends, or the last one ended.
 
     A timestamp, so the frontend shows it as a live countdown ("in 4 minutes")
-    and HomeKit can derive "Remaining Duration" from it. Unknown while idle.
+    and HomeKit can derive "Remaining Duration" from it (nothing left once it's
+    in the past). While idle it's when the last run ended, kept across
+    restarts, so it's only unknown before the zone's first run.
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -75,13 +82,26 @@ class RainbirdZoneTimeRemaining(RainbirdExtendedZoneEntity, SensorEntity):
     def __init__(self, coordinator: RainbirdExtendedCoordinator, zone: int) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, zone, "time_remaining")
+        self._last_end: datetime | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore when the last run ended."""
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_state()) is not None:
+            self._last_end = dt_util.parse_datetime(last.state)
 
     @property
     def native_value(self) -> datetime | None:
-        """Return the expected end of the current run."""
-        if self.coordinator.data is None:
-            return None
-        return self.coordinator.data.get(self._zone)
+        """Return the expected end of the current run, or the last run's end."""
+        if (end := (self.coordinator.data or {}).get(self._zone)) is not None:
+            return end
+        run = self.coordinator.last_runs.get(self._zone)
+        if run is not None and run.end is not None:
+            self._last_end = run.end
+        if self._last_end is not None and self._last_end > dt_util.utcnow():
+            # A run's expected end that it stopped before.
+            return dt_util.utcnow()
+        return self._last_end
 
     @property
     def extra_state_attributes(self) -> dict[str, bool]:
@@ -89,8 +109,14 @@ class RainbirdZoneTimeRemaining(RainbirdExtendedZoneEntity, SensorEntity):
         return {"estimated": self._zone in self.coordinator.estimated_zones}
 
 
-class RainbirdZoneNextRun(RainbirdExtendedZoneEntity, SensorEntity):
-    """When the controller's schedule next runs this zone."""
+class RainbirdZoneNextRun(RainbirdExtendedZoneEntity, RestoreEntity, SensorEntity):
+    """When the zone next runs.
+
+    From the controller's schedule when it can be read. Otherwise estimated:
+    the last run's start plus the zone's Run every interval, moved on by whole
+    intervals if that's already passed (a skipped day). Before any run, the
+    estimate counts from when it was first needed.
+    """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_translation_key = "next_run"
@@ -98,11 +124,44 @@ class RainbirdZoneNextRun(RainbirdExtendedZoneEntity, SensorEntity):
     def __init__(self, coordinator: RainbirdExtendedCoordinator, zone: int) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, zone, "next_run")
+        self._last_start: datetime | None = None
+        self._estimated = False
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the start the estimate counts from."""
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_state()) is not None and (
+            start := last.attributes.get(ATTR_LAST_START)
+        ):
+            self._last_start = dt_util.parse_datetime(str(start))
 
     @property
     def native_value(self) -> datetime | None:
-        """Return the start of the next scheduled run."""
-        return self.coordinator.next_run(self._zone)
+        """Return when the zone next runs."""
+        if (scheduled := self.coordinator.next_run(self._zone)) is not None:
+            self._estimated = False
+            return scheduled
+        self._estimated = True
+        now = dt_util.utcnow()
+        if (run := self.coordinator.last_runs.get(self._zone)) is not None:
+            self._last_start = run.start
+        if self._last_start is None:
+            self._last_start = now.replace(second=0, microsecond=0)
+        interval = timedelta(
+            days=self.coordinator.intervals.get(self._zone, DEFAULT_INTERVAL_DAYS)
+        )
+        nxt = self._last_start + interval
+        if nxt <= now:
+            nxt += interval * math.ceil((now - nxt) / interval + 1e-9)
+        return nxt
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Whether it's estimated, and the start it counts from."""
+        return {
+            "estimated": self._estimated,
+            ATTR_LAST_START: self._last_start.isoformat() if self._last_start else None,
+        }
 
 
 class RainbirdZoneLastRun(RainbirdExtendedZoneEntity, RestoreSensor):

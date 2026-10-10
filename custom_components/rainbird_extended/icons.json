@@ -45,6 +45,9 @@
       },
       "valve_runtime": {
         "default": "mdi:timer-cog-outline"
+      },
+      "run_interval": {
+        "default": "mdi:calendar-sync"
       }
     },
     "sensor": {

@@ -107,17 +107,18 @@ async def test_open_valve_uses_runtime(
     assert hass.states.get(VALVE).state == "open"
     assert dt_util.parse_datetime(hass.states.get(REMAINING).state) == end
 
-    # Run finishes.
+    # Run finishes: time remaining shows when it ended.
     active_zones.clear()
     await _poll_core(hass, freezer)
     assert hass.states.get(VALVE).state == "closed"
-    assert hass.states.get(REMAINING).state == STATE_UNKNOWN
+    ended = dt_util.parse_datetime(hass.states.get(REMAINING).state)
+    assert ended <= dt_util.utcnow()
 
 
 async def test_close_valve_stops(
     hass: HomeAssistant, setup_integrations: MagicMock
 ) -> None:
-    """Closing the valve stops irrigation and clears time remaining."""
+    """Closing the valve stops irrigation; time remaining shows it ended now."""
     controller = setup_integrations
     await hass.services.async_call(
         VALVE_DOMAIN, SERVICE_OPEN_VALVE, {ATTR_ENTITY_ID: VALVE}, blocking=True
@@ -129,7 +130,8 @@ async def test_close_valve_stops(
     controller.stop_irrigation.assert_awaited_once()
     assert hass.states.get(VALVE).state == "closed"
     assert hass.states.get(SWITCH).state == "off"
-    assert hass.states.get(REMAINING).state == STATE_UNKNOWN
+    ended = dt_util.parse_datetime(hass.states.get(REMAINING).state)
+    assert abs(ended - dt_util.utcnow()) < timedelta(seconds=2)
 
 
 @pytest.mark.parametrize("active_zones", [{2}])
@@ -197,7 +199,7 @@ async def test_estimate_follows_runtime_and_expires(
     active_zones: set[int],
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """The estimate updates with the valve runtime and is dropped once passed."""
+    """The estimate follows the valve runtime and rolls on while overrunning."""
     controller.get_combined_controller_state.side_effect = RainbirdDeviceNackError()
     start = dt_util.utcnow()
     await _poll_core(hass, freezer)
@@ -213,16 +215,20 @@ async def test_estimate_follows_runtime_and_expires(
     end = dt_util.parse_datetime(hass.states.get(REMAINING).state)
     assert abs(end - (start + timedelta(minutes=10))) < timedelta(seconds=5)
 
-    # Still running after 10 minutes: no longer known.
+    # Still running after 10 minutes: about a minute left until it stops.
     for _ in range(10):
         await _poll_core(hass, freezer)
-    assert hass.states.get(REMAINING).state == STATE_UNKNOWN
-    assert hass.states.get(REMAINING).attributes["estimated"] is False
+    state = hass.states.get(REMAINING)
+    assert state.attributes["estimated"] is True
+    end = dt_util.parse_datetime(state.state)
+    assert timedelta(0) < end - dt_util.utcnow() <= timedelta(minutes=1)
 
-    # Finished: unknown, and the run lasted its real length.
+    # Finished: when it ended.
     active_zones.clear()
     await _poll_core(hass, freezer)
-    assert hass.states.get(REMAINING).state == STATE_UNKNOWN
+    state = hass.states.get(REMAINING)
+    assert state.attributes["estimated"] is False
+    assert dt_util.parse_datetime(state.state) <= dt_util.utcnow()
 
 
 async def test_own_runs_are_not_estimates(
