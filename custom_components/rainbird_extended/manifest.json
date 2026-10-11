@@ -4,6 +4,7 @@
   "codeowners": ["@donavanbecker"],
   "config_flow": true,
   "dependencies": ["rainbird"],
+  "after_dependencies": ["frontend"],
   "documentation": "https://github.com/bisman-automations/ha-rainbird-extended",
   "integration_type": "service",
   "iot_class": "local_polling",

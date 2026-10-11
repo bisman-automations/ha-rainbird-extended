@@ -15,6 +15,10 @@ A Home Assistant custom integration that extends the built-in
 It adds entities **to the devices Rain Bird already created** — no new
 devices, no second connection to the controller.
 
+Rain Bird Extended also adds an administrator-only **Rain Bird Extended**
+sidebar panel. Configure integration settings and Programs A–D in its in-panel
+editor, and edit each zone's valve runtime, run interval, and flow rate there.
+
 ### On each zone
 
 | Entity | Example ID | What it does |

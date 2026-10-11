@@ -54,6 +54,7 @@ from .const import (
     SERVICE_START_ZONE,
 )
 from .coordinator import RainbirdExtendedCoordinator
+from .panel import async_register_panel, async_unregister_panel
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -209,6 +210,7 @@ async def async_setup_entry(
             CONF_DISABLE_RAINBIRD_SWITCHES, DEFAULT_DISABLE_RAINBIRD_SWITCHES
         ),
     )
+    await async_register_panel(hass)
     return True
 
 
@@ -216,7 +218,10 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: RainbirdExtendedConfigEntry
 ) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
+    await async_unregister_panel(hass, excluding_entry_id=entry.entry_id)
+    return True
 
 
 async def async_remove_entry(

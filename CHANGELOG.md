@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Rain Bird Extended** administrator-only sidebar panel to edit integration
+  settings and Programs A–D in place, and configure each zone's valve runtime,
+  run interval and flow rate without YAML dashboards.
+
 ## [1.6.0] - 2026-10-10
 
 ### Added
