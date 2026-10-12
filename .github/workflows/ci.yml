@@ -30,6 +30,7 @@ jobs:
       - if: matrix.pins
         run: pip install --pre ${{ matrix.pins }}
       - run: ruff check . && ruff format --check .
+      - run: node --test tests/test_panel_frontend.mjs
       - if: "!matrix.pins"
         run: mypy custom_components/rainbird_extended
       - run: pytest --cov

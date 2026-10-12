@@ -22,6 +22,23 @@ from .helpers import _local, _open_options, _poll_core, _press, _setup, _unload
 
 SCHEDULE = "calendar.rain_bird_controller_schedule"
 
+
+@pytest.fixture(autouse=True)
+def freeze_program_date(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
+    """Keep schedule expectations stable as the calendar advances."""
+    freezer.move_to(
+        dt_util.now().replace(
+            year=2026,
+            month=10,
+            day=10,
+            hour=12,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+    )
+
+
 PROGRAM_A = {
     "name": "Normal Watering",
     "frequency": "cyclic",

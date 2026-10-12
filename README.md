@@ -12,8 +12,26 @@
 
 A Home Assistant custom integration that extends the built-in
 [Rain Bird](https://www.home-assistant.io/integrations/rainbird) integration.
-It adds entities **to the devices Rain Bird already created** — no new
-devices, no second connection to the controller.
+It adds entities **to the devices Rain Bird already created** and appears there
+as a linked service. It does not create duplicate hardware devices or a second
+connection to the controller.
+
+Rain Bird Extended also adds an administrator-only **Rain Bird Extended**
+sidebar panel. Configure integration settings and Programs A–D in its in-panel
+editor, and see each program's configuration status and next run date. Its
+program editor shows frequency-specific fields only when they apply. You can
+also see whether the controller is online and actively irrigating, edit each
+zone's valve runtime, run interval, and flow rate, or stop active irrigation.
+Zone configuration cards use each linked Rain Bird zone name, and the setting
+labels omit that repeated name for a more compact view.
+Above Programs, the panel shows up to ten daily forecasts from the configured
+weather entity and lets you set the controller's current rain delay. Rain Skip
+continues to check today's forecast once daily using its configured threshold
+and delay.
+The status follows live Rain Bird entity states. The Stop irrigation action is
+configurable in integration settings; currently it stops active watering
+without disabling future scheduled programs. Additional actions can be added
+when supported by the Rain Bird integration.
 
 ### On each zone
 

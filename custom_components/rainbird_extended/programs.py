@@ -8,7 +8,7 @@ when a scheduled run ends.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import logging
@@ -143,7 +143,7 @@ def _time(value: Any) -> time | None:
     return None
 
 
-def parse_program(program: int, data: dict[str, Any]) -> ConfiguredProgram | None:
+def parse_program(program: int, data: Mapping[str, Any]) -> ConfiguredProgram | None:
     """A program from its options, or None if it's off (no zones or start times)."""
     zones = tuple(sorted({int(z) for z in data.get(CONF_ZONES) or []}))
     starts = tuple(
@@ -179,7 +179,7 @@ def parse_program(program: int, data: dict[str, Any]) -> ConfiguredProgram | Non
     )
 
 
-def parse_programs(options: dict[str, Any], count: int) -> list[ConfiguredProgram]:
+def parse_programs(options: Mapping[str, Any], count: int) -> list[ConfiguredProgram]:
     """Every program that's set up in the options."""
     programs = []
     for index in range(count):

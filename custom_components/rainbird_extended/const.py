@@ -12,6 +12,13 @@ RAINBIRD_DEFAULT_DURATION_MINUTES = 6
 
 CONF_RAINBIRD_ENTRY_ID = "rainbird_entry_id"
 
+# Stop irrigation behavior. Keep the action values stable so additional
+# controller actions can be added when the Rain Bird integration supports them.
+CONF_STOP_ACTION = "stop_action"
+STOP_ACTION_STOP_IRRIGATION = "stop_irrigation"
+STOP_ACTIONS = (STOP_ACTION_STOP_IRRIGATION,)
+DEFAULT_STOP_ACTION = STOP_ACTION_STOP_IRRIGATION
+
 # Valve runtime limits, in seconds. Rain Bird runs zones in whole minutes,
 # so the step is one minute. The max matches the core start_irrigation service.
 RUNTIME_MIN_SECONDS = 60
