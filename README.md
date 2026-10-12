@@ -33,6 +33,10 @@ configurable in integration settings; currently it stops active watering
 without disabling future scheduled programs. Additional actions can be added
 when supported by the Rain Bird integration.
 
+Rain Bird Extended also adds an administrator-only **Rain Bird Extended**
+sidebar panel. Configure integration settings and Programs A–D in its in-panel
+editor, and edit each zone's valve runtime, run interval, and flow rate there.
+
 ### On each zone
 
 | Entity | Example ID | What it does |
