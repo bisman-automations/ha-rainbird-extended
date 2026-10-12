@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-10-12
+
+### Added
+
+- The sidebar shows whether each supported program is configured and, when it
+  is, the next date it will run.
+- The sidebar shows the controller's live availability and irrigation status.
+- A confirmed **Stop irrigation** action stops active watering without changing
+  the controller's configured programs.
+- The Stop irrigation action is configurable; additional behaviors can be added
+  when supported by the Rain Bird integration.
+- Rain Bird Extended now appears as a linked service on the controller device;
+  its entities remain attached to the existing controller and zone devices.
+- The dashboard shows up to ten daily forecasts from the configured weather
+  entity and lets you set the controller's current rain delay above Programs.
+  Rain Skip continues to check only today's forecast on its configured daily
+  schedule.
+- Zone configuration cards use the linked Rain Bird zone names, without
+  repeating the zone name on each setting.
+
+### Changed
+
+- Program editor fields now follow the selected frequency: custom weekdays
+  appear only for Custom, and cyclic interval/start date only for Cyclic.
+
 ## [1.7.0] - 2026-10-11
 
 ### Added
@@ -220,6 +245,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[1.8.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.4.2...v1.5.0

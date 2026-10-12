@@ -782,12 +782,17 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             self.hass, self.rainbird.async_request_refresh(), f"{DOMAIN} confirm"
         )
 
-    async def async_set_rain_delay(self, days: int) -> None:
+    async def async_set_rain_delay(
+        self, days: int, *, wait_for_refresh: bool = False
+    ) -> None:
         """Set the controller's rain delay and refresh the core entities."""
         await self._async_command(self.controller.set_rain_delay, days)
-        self.config_entry.async_create_background_task(
-            self.hass, self.rainbird.async_request_refresh(), f"{DOMAIN} confirm"
-        )
+        if wait_for_refresh:
+            await self.rainbird.async_request_refresh()
+        else:
+            self.config_entry.async_create_background_task(
+                self.hass, self.rainbird.async_request_refresh(), f"{DOMAIN} confirm"
+            )
 
     def run_all_zones_order(self) -> list[int]:
         """Zones Run all zones runs, in order (from the options, else all)."""

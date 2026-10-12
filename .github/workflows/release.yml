@@ -15,13 +15,14 @@ jobs:
       - name: Tag matches manifest.json and CHANGELOG.md
         run: |
           tag="${GITHUB_REF_NAME#v}"
+          version="${tag%%-*}"
           manifest=$(jq -r .version custom_components/rainbird_extended/manifest.json)
-          if [ "$tag" != "$manifest" ]; then
+          if [ "$version" != "$manifest" ]; then
             echo "::error::Tag v$tag doesn't match manifest.json version $manifest"
             exit 1
           fi
-          if ! grep -q "^## \[$tag\]" CHANGELOG.md; then
-            echo "::error::CHANGELOG.md has no [$tag] section"
+          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no [$version] section"
             exit 1
           fi
-          echo "v$tag matches manifest.json and CHANGELOG.md"
+          echo "v$tag matches manifest.json version $manifest and CHANGELOG.md"

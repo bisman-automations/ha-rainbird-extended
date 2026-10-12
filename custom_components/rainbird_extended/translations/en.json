@@ -29,9 +29,11 @@
       "settings": {
         "title": "Settings",
         "data": {
+          "stop_action": "Stop irrigation action",
           "disable_rainbird_switches": "Disable the Rain Bird zone switches"
         },
         "data_description": {
+          "stop_action": "Choose what the dashboard's Stop irrigation control does. Additional actions will appear when supported by the Rain Bird integration.",
           "disable_rainbird_switches": "Each zone's valve replaces its Rain Bird switch, so the switches are disabled to avoid having every zone twice (for example in HomeKit). Turn this off to keep both."
         },
         "sections": {
@@ -534,6 +536,11 @@
     }
   },
   "selector": {
+    "stop_action": {
+      "options": {
+        "stop_irrigation": "Stop active irrigation"
+      }
+    },
     "frequency": {
       "options": {
         "custom": "Custom",

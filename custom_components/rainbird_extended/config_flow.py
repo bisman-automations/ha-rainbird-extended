@@ -53,6 +53,7 @@ from .const import (
     CONF_RAINBIRD_ENTRY_ID,
     CONF_RUN_ALL_ZONES,
     CONF_SOAK_MINUTES,
+    CONF_STOP_ACTION,
     CONF_TEMPERATURE_UNIT,
     CONF_WEATHER_ENTITY,
     DEFAULT_ADJUST_HIGH_PERCENT,
@@ -68,6 +69,7 @@ from .const import (
     DEFAULT_RAIN_CHECK_TIME,
     DEFAULT_RAIN_DELAY_DAYS,
     DEFAULT_SOAK_MINUTES,
+    DEFAULT_STOP_ACTION,
     DOMAIN,
     RAINBIRD_DOMAIN,
     SECTION_BLOWOUT,
@@ -77,6 +79,7 @@ from .const import (
     SECTION_RUN_ALL_ZONES,
     SECTION_WEATHER,
     SECTION_WEATHER_ADJUSTMENT,
+    STOP_ACTIONS,
     TEMPERATURE_DEFAULTS,
 )
 from .programs import (
@@ -461,6 +464,13 @@ def options_schema(valves: list[str], unit: str) -> vol.Schema:
     }
     return vol.Schema(
         {
+            vol.Required(CONF_STOP_ACTION, default=DEFAULT_STOP_ACTION): SelectSelector(
+                SelectSelectorConfig(
+                    options=list(STOP_ACTIONS),
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="stop_action",
+                )
+            ),
             vol.Required(
                 CONF_DISABLE_RAINBIRD_SWITCHES,
                 default=DEFAULT_DISABLE_RAINBIRD_SWITCHES,

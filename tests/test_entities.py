@@ -43,10 +43,29 @@ REMAINING = "sensor.rain_bird_sprinkler_2_time_remaining"
 async def test_entities_linked_to_zone_devices(
     hass: HomeAssistant,
     rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
     entity_registry: er.EntityRegistry,
     device_registry: dr.DeviceRegistry,
 ) -> None:
-    """Each zone gets a valve, runtime and time remaining on its existing device."""
+    """Keep entities on Rain Bird devices and link the service entry to controller."""
+    controller = device_registry.async_get_device_by_identifier(
+        ("rainbird", RAINBIRD_UNIQUE_ID), rainbird_entry.entry_id
+    )
+    assert controller is not None
+    service_device = device_registry.async_get_device_by_identifier(
+        ("rainbird_extended", RAINBIRD_UNIQUE_ID), extended_entry.entry_id
+    )
+    assert service_device is not None
+    assert service_device.name == extended_entry.title
+    assert service_device.manufacturer == "Rain Bird Extended"
+    assert service_device.entry_type is dr.DeviceEntryType.SERVICE
+    assert service_device.via_device_id == controller.id
+    assert controller.connections
+    assert service_device.connections >= controller.connections
+    assert service_device in device_registry.async_get_devices(
+        connections=controller.connections
+    )
+
     for zone in ZONES:
         device = device_registry.async_get_device_by_identifier(
             ("rainbird", f"{RAINBIRD_UNIQUE_ID}-{zone}"), rainbird_entry.entry_id
@@ -58,11 +77,10 @@ async def test_entities_linked_to_zone_devices(
             for entry in er.async_entries_for_device(entity_registry, device.id)
         }
         assert domains == {"switch", "valve", "number", "sensor", "event"}
-    # No extra devices were created.
-    assert not dr.async_entries_for_config_entry(
-        device_registry,
-        hass.config_entries.async_entries("rainbird_extended")[0].entry_id,
-    )
+    # The linked service device is the only Rain Bird Extended device.
+    assert dr.async_entries_for_config_entry(
+        device_registry, extended_entry.entry_id
+    ) == [service_device]
 
     valve = hass.states.get(VALVE)
     assert valve.state == "closed"

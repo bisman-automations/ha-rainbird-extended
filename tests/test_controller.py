@@ -12,7 +12,11 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.rainbird_extended.config_flow import nest
-from custom_components.rainbird_extended.const import CONF_DISABLE_RAINBIRD_SWITCHES
+from custom_components.rainbird_extended.const import (
+    CONF_DISABLE_RAINBIRD_SWITCHES,
+    CONF_STOP_ACTION,
+    STOP_ACTION_STOP_IRRIGATION,
+)
 from homeassistant.components.number import (
     ATTR_VALUE,
     DOMAIN as NUMBER_DOMAIN,
@@ -58,10 +62,17 @@ async def test_switches_disabled_by_default(
     result = await _open_options(hass, extended_entry.entry_id)
     assert result["type"] is FlowResultType.FORM
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], nest({CONF_DISABLE_RAINBIRD_SWITCHES: False})
+        result["flow_id"],
+        nest(
+            {
+                CONF_DISABLE_RAINBIRD_SWITCHES: False,
+                CONF_STOP_ACTION: STOP_ACTION_STOP_IRRIGATION,
+            }
+        ),
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
+    assert extended_entry.options[CONF_STOP_ACTION] == STOP_ACTION_STOP_IRRIGATION
     assert entity_registry.async_get(SWITCH).disabled_by is None
 
 

@@ -1,4 +1,5 @@
 const DOMAIN = "rainbird_extended";
+const STOP_ACTION_STOP_IRRIGATION = "stop_irrigation";
 
 class RainbirdExtendedPanel extends HTMLElement {
   set hass(hass) {
@@ -6,6 +7,8 @@ class RainbirdExtendedPanel extends HTMLElement {
     if (!this._loaded) {
       this._loaded = true;
       this._load();
+    } else {
+      this._updateControllerStatuses();
     }
   }
 
@@ -58,6 +61,7 @@ class RainbirdExtendedPanel extends HTMLElement {
             : `<section class="empty"><h2>No controllers configured</h2><p>Add a Rain Bird controller in Home Assistant, then set up Rain Bird Extended from Devices &amp; services.</p></section>`
         }
         ${this._flow ? this._flowDialog() : ""}
+        ${this._pendingStop ? this._stopConfirmation() : ""}
       </main>`;
     this.shadowRoot.querySelector('[data-action="refresh"]')?.addEventListener("click", () => {
       this._refresh().catch((error) => this._showNotice(error?.message || "Unable to refresh the dashboard.", true));
@@ -65,8 +69,29 @@ class RainbirdExtendedPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-action="configure"]').forEach((button) => {
       button.addEventListener("click", () => this._openOptions(button.dataset.entryId));
     });
+    this.shadowRoot.querySelectorAll('[data-action="request-stop"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        this._pendingStop = {
+          action: button.dataset.stopAction,
+          entityId: button.dataset.buttonEntityId,
+        };
+        this._render();
+      });
+    });
+    this.shadowRoot.querySelectorAll('[data-action="confirm-stop"]').forEach((button) => {
+      button.addEventListener("click", () => this._stopIrrigation());
+    });
+    this.shadowRoot.querySelectorAll('[data-action="cancel-stop"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        this._pendingStop = undefined;
+        this._render();
+      });
+    });
     this.shadowRoot.querySelectorAll('[data-action="set-number"]').forEach((button) => {
       button.addEventListener("click", () => this._setNumber(button));
+    });
+    this.shadowRoot.querySelectorAll('[data-action="set-rain-delay"]').forEach((button) => {
+      button.addEventListener("click", () => this._setRainDelay(button));
     });
     this.shadowRoot.querySelectorAll('[data-action="close-flow"]').forEach((button) => {
       button.addEventListener("click", () => this._closeFlow());
@@ -82,6 +107,12 @@ class RainbirdExtendedPanel extends HTMLElement {
         if (output) output.textContent = input.value;
       });
     });
+    const frequency = Array.from(this.shadowRoot.querySelectorAll("[data-path]"))
+      .find((input) => JSON.stringify(JSON.parse(input.dataset.path)) === '["frequency"]');
+    if (frequency) {
+      frequency.addEventListener("change", () => this._syncFrequencyFields(frequency.value));
+      this._syncFrequencyFields(frequency.value);
+    }
     this.shadowRoot.querySelectorAll("[data-next-step]").forEach((button) => {
       button.addEventListener("click", () => this._submitMenu(button.dataset.nextStep));
     });
@@ -91,7 +122,7 @@ class RainbirdExtendedPanel extends HTMLElement {
   }
 
   _controllerCard(controller) {
-    const connected = controller.rainbird_available;
+    const status = this._controllerStatus(controller);
     const zones = controller.zones || [];
     return `<section class="controller">
       <div class="controller-head">
@@ -100,12 +131,23 @@ class RainbirdExtendedPanel extends HTMLElement {
           <h2>${this._escape(controller.rainbird_title || controller.title)}</h2>
           <p>${zones.length} ${zones.length === 1 ? "zone" : "zones"} · ${controller.program_count} ${controller.program_count === 1 ? "program" : "programs"}</p>
         </div>
-        <span class="status ${connected ? "connected" : "disconnected"}">${connected ? "Connected" : "Waiting for controller"}</span>
+        <div class="status-group">
+          <span class="status ${status.availabilityClass}" data-controller-status="availability" data-entry-id="${this._escape(controller.entry_id)}">${status.availability}</span>
+          <span class="status ${status.irrigationClass}" data-controller-status="irrigation" data-entry-id="${this._escape(controller.entry_id)}">${status.irrigation}</span>
+        </div>
       </div>
       <div class="controller-actions">
         <button class="primary" data-action="configure" data-entry-id="${this._escape(controller.entry_id)}">Configure integration</button>
+        ${controller.stop_button ? `<button class="danger" data-action="request-stop" data-stop-action="${this._escape(controller.stop_action || STOP_ACTION_STOP_IRRIGATION)}" data-button-entity-id="${this._escape(controller.stop_button)}">Stop irrigation</button>` : ""}
         <span class="muted">${this._escape(controller.title)} · ${this._escape(controller.state)}</span>
       </div>
+      ${controller.stop_button ? `<p class="stop-note">Stops active watering only. Configured programs remain enabled.</p>` : ""}
+      ${this._weatherAndRainDelay(controller)}
+      ${
+        controller.programs?.length
+          ? `<div class="program-section"><h3>Programs</h3><div class="programs">${controller.programs.map((program) => this._programCard(program)).join("")}</div></div>`
+          : ""
+      }
       ${
         zones.length
           ? `<h3>Zone configuration</h3><div class="zones">${zones.map((zone) => this._zoneCard(zone)).join("")}</div>`
@@ -114,15 +156,182 @@ class RainbirdExtendedPanel extends HTMLElement {
     </section>`;
   }
 
-  _zoneCard(zone) {
-    return `<article class="zone">
-      <h4>Zone ${zone.zone}</h4>
-      <div class="numbers">${zone.numbers.map((number) => this._numberControl(number)).join("")}</div>
+  _weatherAndRainDelay(controller) {
+    if (!controller.weather_entity && !controller.rain_delay) return "";
+    const forecast = controller.forecast || [];
+    const forecastContent = !controller.weather_entity
+      ? `<p class="muted">Select a weather forecast entity in integration settings to see the forecast.</p>`
+      : controller.forecast_error
+        ? `<p class="muted">${this._escape(controller.forecast_error)}</p>`
+        : forecast.length
+          ? `<p class="muted">Showing ${forecast.length} available days.</p><div class="forecast-days">${forecast.map((day) => this._forecastCard(day, controller.forecast_unit)).join("")}</div>`
+          : `<p class="muted">No forecast days are available.</p>`;
+    return `<section class="weather-section">
+      <div class="weather-layout">
+        <div class="forecast-panel">
+          <h3>10-day forecast</h3>
+          ${forecastContent}
+        </div>
+        ${
+          controller.rain_delay
+            ? `<div class="rain-delay-panel">
+                <h3>Controller rain delay</h3>
+                ${this._rainDelayControl(controller.rain_delay, controller.entry_id)}
+                <p class="muted">Set how many days the controller skips watering. Program next-run dates update to reflect this delay.</p>
+              </div>`
+            : ""
+        }
+      </div>
+    </section>`;
+  }
+
+  _forecastCard(day, temperatureUnit) {
+    const condition = day.condition
+      ? String(day.condition).replace(/[-_]/g, " ")
+      : "Forecast";
+    const chance = day.precipitation_probability == null
+      ? "Rain chance unavailable"
+      : `${this._escape(day.precipitation_probability)}% rain`;
+    const temperatures = [];
+    if (day.temperature != null) {
+      temperatures.push(`High ${this._escape(day.temperature)}${this._escape(temperatureUnit || "")}`);
+    }
+    if (day.templow != null) {
+      temperatures.push(`Low ${this._escape(day.templow)}${this._escape(temperatureUnit || "")}`);
+    }
+    return `<article class="forecast-day">
+      <h4>${this._escape(this._formatForecastDate(day.date))}</h4>
+      <p class="forecast-condition">${this._escape(condition)}</p>
+      <p>${chance}</p>
+      ${temperatures.length ? `<p>${temperatures.join(" · ")}</p>` : ""}
     </article>`;
   }
 
-  _numberControl(number) {
-    const name = this._escape(number.name);
+  _formatForecastDate(value) {
+    if (!value) return "Date unavailable";
+    const [year, month, day] = value.split("-").map(Number);
+    return new Intl.DateTimeFormat(this._hass?.locale?.language, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    }).format(new Date(year, month - 1, day, 12));
+  }
+
+  _controllerStatus(controller) {
+    const states = this._hass?.states || {};
+    const available = Boolean(controller.rainbird_loaded) &&
+      (controller.rainbird_status_entities || []).some((entityId) => {
+        const state = states[entityId]?.state;
+        return state && state !== "unknown" && state !== "unavailable";
+      });
+    const primaryIrrigationState = states[controller.irrigating_entity]?.state;
+    const irrigationStates = ["on", "off"].includes(primaryIrrigationState)
+      ? [primaryIrrigationState]
+      : (controller.watering_entities || [])
+          .map((entityId) => states[entityId]?.state)
+          .filter((state) => ["on", "off", "open", "closed"].includes(state));
+    const irrigationActive = irrigationStates.some(
+      (state) => state === "on" || state === "open",
+    );
+    const irrigationKnown = irrigationStates.length > 0;
+    const irrigation = !available || !irrigationKnown
+      ? "Unknown"
+      : irrigationActive
+        ? "Irrigating"
+        : "Idle";
+    return {
+      availability: available ? "Online" : "Unavailable",
+      availabilityClass: available ? "connected" : "disconnected",
+      irrigation,
+      irrigationClass: irrigation === "Irrigating"
+        ? "irrigating"
+        : irrigation === "Idle"
+          ? "idle"
+          : "unknown",
+    };
+  }
+
+  _updateControllerStatuses() {
+    if (!this._data || !this.shadowRoot) return;
+    const controllers = new Map(
+      (this._data.controllers || []).map((controller) => [
+        controller.entry_id,
+        controller,
+      ]),
+    );
+    this.shadowRoot.querySelectorAll("[data-controller-status]").forEach((element) => {
+      const controller = controllers.get(element.dataset.entryId);
+      if (!controller) return;
+      const status = this._controllerStatus(controller);
+      const irrigation = element.dataset.controllerStatus === "irrigation";
+      element.textContent = irrigation ? status.irrigation : status.availability;
+      element.className = `status ${irrigation ? status.irrigationClass : status.availabilityClass}`;
+    });
+  }
+
+  _programCard(program) {
+    const label = program.name
+      ? `Program ${program.letter} · ${program.name}`
+      : `Program ${program.letter}`;
+    const status = program.configured
+      ? `<span class="program-state configured">Configured</span><span class="program-next">Next run: ${this._formatProgramDate(program.next_run)}</span>`
+      : `<span class="program-state">Not configured</span>`;
+    return `<article class="program">
+      <h4>${this._escape(label)}</h4>
+      <div class="program-details">${status}</div>
+    </article>`;
+  }
+
+  _formatProgramDate(value) {
+    if (!value) {
+      return "No upcoming run";
+    }
+    const [year, month, day] = value.split("-").map(Number);
+    return new Intl.DateTimeFormat(this._hass?.locale?.language, {
+      dateStyle: "full",
+    }).format(new Date(year, month - 1, day, 12));
+  }
+
+  _stopConfirmation() {
+    return `<div class="backdrop"><section class="dialog">
+      ${this._dialogHeader("Stop irrigation?")}
+      <p class="description">This stops active watering now. It does not disable the controller or change its configured programs; they may run at their next scheduled time.</p>
+      <footer><button class="secondary" data-action="cancel-stop">Cancel</button><button class="danger" data-action="confirm-stop">Stop irrigation</button></footer>
+    </section></div>`;
+  }
+
+  async _stopIrrigation() {
+    const pending = this._pendingStop;
+    if (!pending) return;
+    this._pendingStop = undefined;
+    this._render();
+    try {
+      if (pending.action !== STOP_ACTION_STOP_IRRIGATION || !pending.entityId) {
+        throw new Error("The configured stop action is not supported.");
+      }
+      await this._hass.callService("button", "press", {
+        entity_id: pending.entityId,
+      });
+      await this._refresh();
+      this._showNotice("Active irrigation stopped.");
+    } catch (error) {
+      this._showNotice(error?.message || "Unable to stop irrigation.", true);
+    }
+  }
+
+  _zoneCard(zone) {
+    const name = zone.name || `Zone ${zone.zone}`;
+    return `<article class="zone">
+      <h4>${this._escape(name)}</h4>
+      <div class="numbers">${zone.numbers.map((number) => this._numberControl(number, name)).join("")}</div>
+    </article>`;
+  }
+
+  _numberControl(number, zoneName) {
+    const settingName = zoneName && number.name.startsWith(`${zoneName} `)
+      ? number.name.slice(zoneName.length + 1)
+      : number.name;
+    const name = this._escape(settingName);
     const unit = this._escape(number.unit || "");
     const value = number.value === "unknown" || number.value === "unavailable" ? "" : number.value;
     return `<label class="number-row">
@@ -131,6 +340,20 @@ class RainbirdExtendedPanel extends HTMLElement {
         <input type="number" value="${this._escape(value)}" min="${this._escape(number.min ?? "")}" max="${this._escape(number.max ?? "")}" step="${this._escape(number.step ?? "any")}" data-number-value="${this._escape(number.entity_id)}" aria-label="${name}">
         <small>${unit}</small>
         <button class="secondary compact" data-action="set-number" data-entity-id="${this._escape(number.entity_id)}">Save</button>
+      </span>
+    </label>`;
+  }
+
+  _rainDelayControl(number, entryId) {
+    const name = this._escape(number.name);
+    const unit = this._escape(number.unit || "");
+    const value = number.value === "unknown" || number.value === "unavailable" ? "" : number.value;
+    return `<label class="number-row">
+      <span>${name}</span>
+      <span class="number-input">
+        <input type="number" value="${this._escape(value)}" min="${this._escape(number.min ?? 0)}" max="${this._escape(number.max ?? 14)}" step="${this._escape(number.step ?? 1)}" data-rain-delay-value="${this._escape(entryId)}" aria-label="${name}">
+        <small>${unit}</small>
+        <button class="secondary compact" data-action="set-rain-delay" data-entry-id="${this._escape(entryId)}">Save</button>
       </span>
     </label>`;
   }
@@ -149,6 +372,34 @@ class RainbirdExtendedPanel extends HTMLElement {
       await this._refresh();
     } catch (error) {
       this._showNotice(error?.message || "Unable to update this zone setting.", true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async _setRainDelay(button) {
+    const input = this.shadowRoot.querySelector(
+      `[data-rain-delay-value="${CSS.escape(button.dataset.entryId)}"]`,
+    );
+    if (!input || input.value === "") {
+      return;
+    }
+    const days = Number(input.value);
+    if (!Number.isInteger(days) || days < Number(input.min) || days > Number(input.max)) {
+      this._showNotice("Enter a whole number within the rain delay range.", true);
+      return;
+    }
+    button.disabled = true;
+    try {
+      await this._hass.callWS({
+        type: `${DOMAIN}/panel/rain_delay`,
+        entry_id: button.dataset.entryId,
+        days,
+      });
+      await this._refresh();
+      this._showNotice("Controller rain delay updated.");
+    } catch (error) {
+      this._showNotice(error?.message || "Unable to update the controller rain delay.", true);
     } finally {
       button.disabled = false;
     }
@@ -255,11 +506,34 @@ class RainbirdExtendedPanel extends HTMLElement {
     const key = Object.keys(selector)[0];
     const config = selector[key] || {};
     const value = data?.[name] ?? field.default;
-    return `<label class="field">
+    const frequency = this._frequencyOnly(this._flow.step.step_id, name);
+    const frequencyAttribute = frequency
+      ? ` data-frequency-only="${frequency}"${data?.frequency !== frequency ? " hidden" : ""}`
+      : "";
+    return `<label class="field"${frequencyAttribute}>
       <span class="field-label">${this._escape(label)}${field.required ? " *" : ""}</span>
       ${this._renderControl(key, config, value, pathValue)}
       ${helper ? `<small>${this._escape(helper)}</small>` : ""}
     </label>`;
+  }
+
+  _frequencyOnly(stepId, fieldName) {
+    if (!stepId?.startsWith("program_")) {
+      return undefined;
+    }
+    if (fieldName === "days") {
+      return "custom";
+    }
+    if (fieldName === "every_days" || fieldName === "start_date") {
+      return "cyclic";
+    }
+    return undefined;
+  }
+
+  _syncFrequencyFields(frequency) {
+    this.shadowRoot.querySelectorAll("[data-frequency-only]").forEach((field) => {
+      field.hidden = field.dataset.frequencyOnly !== frequency;
+    });
   }
 
   _renderControl(type, config, value, path) {
@@ -280,12 +554,16 @@ class RainbirdExtendedPanel extends HTMLElement {
     if (type === "select") {
       const options = config.select?.options || config.options || [];
       const multiple = Boolean(config.select?.multiple ?? config.multiple);
+      const translationKey = config.select?.translation_key;
       const selected = Array.isArray(value) ? value.map(String) : [String(value ?? "")];
       const rendered = options.map((option) => {
         const optionValue = typeof option === "object" ? option.value : option;
         const optionLabel = typeof option === "object" ? option.label : option;
         const isSelected = selected.includes(String(optionValue));
-        return `<option value="${this._escape(optionValue)}" ${isSelected ? "selected" : ""}>${this._escape(this._localize(`component.${DOMAIN}.selector.${optionLabel}`, optionLabel))}</option>`;
+        const translation = translationKey
+          ? `component.${DOMAIN}.selector.${translationKey}.options.${optionValue}`
+          : `component.${DOMAIN}.selector.${optionLabel}`;
+        return `<option value="${this._escape(optionValue)}" ${isSelected ? "selected" : ""}>${this._escape(this._localize(translation, optionLabel))}</option>`;
       }).join("");
       return `<select data-path="${path}" ${multiple ? "multiple size=\"5\"" : ""}>${rendered}</select>`;
     }
@@ -362,6 +640,9 @@ class RainbirdExtendedPanel extends HTMLElement {
     if (!form) return;
     const data = {};
     for (const control of form.querySelectorAll("[data-path]")) {
+      if (control.closest("[data-frequency-only][hidden]")) {
+        continue;
+      }
       const path = JSON.parse(control.dataset.path);
       let value;
       if (control.type === "checkbox") {
@@ -482,16 +763,19 @@ class RainbirdExtendedPanel extends HTMLElement {
       header{margin-bottom:24px}h1{font-size:28px;margin:0 0 6px}h2{font-size:20px;margin:0 0 4px}h3{font-size:16px;margin:22px 0 12px}h4{margin:0 0 12px}p{color:var(--secondary-text-color);margin:0}
       .controller-list{display:grid;gap:18px}.controller,.empty{background:var(--card-background-color,#fff);border:1px solid var(--border);border-radius:14px;padding:22px;box-shadow:var(--ha-card-box-shadow,0 1px 3px #0001)}
       .controller-head{align-items:flex-start}.eyebrow{font-size:11px;letter-spacing:.08em;font-weight:600;color:var(--secondary-text-color);margin-bottom:7px}
-      .status{border-radius:20px;padding:6px 11px;font-size:12px;font-weight:600;white-space:nowrap}.connected{background:var(--success-color,#2e7d32);color:var(--text-primary-color,#fff)}.disconnected{background:var(--warning-color,#ed6c02);color:var(--text-primary-color,#fff)}
-      .controller-actions{justify-content:flex-start;margin-top:17px}.muted{font-size:13px;color:var(--secondary-text-color)}
+      .status-group{display:flex;flex-wrap:wrap;gap:8px}.status{border-radius:20px;padding:6px 11px;font-size:12px;font-weight:600;white-space:nowrap}.connected,.idle{background:var(--success-color,#2e7d32);color:var(--text-primary-color,#fff)}.disconnected,.irrigating{background:var(--warning-color,#ed6c02);color:var(--text-primary-color,#fff)}.unknown{background:var(--secondary-background-color,#f1f3f4);color:var(--secondary-text-color)}
+      .controller-actions{justify-content:flex-start;margin-top:17px;flex-wrap:wrap}.muted{font-size:13px;color:var(--secondary-text-color)}.stop-note{font-size:12px;margin-top:8px}
+      .danger{background:var(--error-color,#db4437);color:var(--text-primary-color,#fff);font-weight:600}
+      .weather-section{margin-top:22px}.weather-layout{display:grid;grid-template-columns:minmax(0,3fr) minmax(230px,1fr);gap:16px}.forecast-panel,.rain-delay-panel{border:1px solid var(--border);border-radius:10px;padding:16px}.weather-section h3{margin:0 0 12px}.forecast-days{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}.forecast-day{border:1px solid var(--border);border-radius:8px;padding:10px}.forecast-day h4{margin:0 0 6px}.forecast-day p{font-size:12px;margin-top:4px}.forecast-condition{text-transform:capitalize}.rain-delay-panel .number-row{margin:8px 0 12px}.rain-delay-panel .muted{line-height:1.5}
+      .program-section{margin-top:22px}.program-section h3{margin:0 0 12px}.programs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.program{border:1px solid var(--border);border-radius:10px;padding:13px 14px}.program h4{margin:0 0 9px}.program-details{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.program-state{display:inline-flex;border-radius:16px;padding:4px 9px;font-size:12px;font-weight:600;background:var(--secondary-background-color,#f1f3f4);color:var(--secondary-text-color)}.program-state.configured{background:var(--success-color,#2e7d32);color:var(--text-primary-color,#fff)}.program-next{font-size:13px;color:var(--secondary-text-color)}
       button{font:inherit;border:0;border-radius:8px;padding:10px 16px;cursor:pointer}button:disabled{opacity:.55;cursor:wait}.primary{background:var(--blue);color:var(--text-primary-color,#fff);font-weight:600}.secondary{background:var(--secondary-background-color,#f1f3f4);color:var(--primary-text-color)}.compact{padding:6px 10px;font-size:12px}
       .zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.zone{border:1px solid var(--border);border-radius:10px;padding:14px}.number-row{display:grid;gap:6px;margin:12px 0;font-size:13px}.number-input,.number-control{display:flex;align-items:center;gap:7px}.number-input input,.number-control input{min-width:0;flex:1}.number-input small,.number-control small,.number-control output{color:var(--secondary-text-color)}input,select{font:inherit;color:var(--primary-text-color);background:var(--input-fill-color,var(--card-background-color,#fff));border:1px solid var(--border);border-radius:7px;padding:9px;min-width:0;width:100%}input[type=range],input[type=checkbox]{width:auto}
       .empty{text-align:center;padding:48px 22px}.empty h2{margin-bottom:8px}
       .backdrop{position:fixed;inset:0;background:#0008;display:grid;place-items:center;padding:20px;z-index:10}.dialog{width:min(760px,100%);max-height:90vh;overflow:auto;background:var(--card-background-color,#fff);border-radius:16px;padding:24px;box-shadow:0 16px 48px #0004}.dialog-head{margin-bottom:12px}.icon-button{font-size:24px;padding:2px 8px;background:transparent;color:var(--primary-text-color)}.description{margin:0 0 18px;line-height:1.5;white-space:pre-wrap}
       .menu{display:grid;gap:8px}.menu-option{display:flex;justify-content:space-between;align-items:center;text-align:left;background:var(--secondary-background-color,#f1f3f4);color:var(--primary-text-color)}.menu-option span{font-size:22px;color:var(--secondary-text-color)}
-      form{display:grid;gap:14px}.field{display:grid;gap:7px}.field-label{font-weight:500}.field small{color:var(--secondary-text-color);line-height:1.4}.field-error{color:var(--error-color,#db4437);font-size:13px}fieldset{border:1px solid var(--border);border-radius:10px;padding:14px;display:grid;gap:14px}legend{font-weight:600;padding:0 7px}.order-buttons{display:flex;gap:8px;margin-top:8px}
+      form{display:grid;gap:14px}.field{display:grid;gap:7px}.field[hidden]{display:none}.field-label{font-weight:500}.field small{color:var(--secondary-text-color);line-height:1.4}.field-error{color:var(--error-color,#db4437);font-size:13px}fieldset{border:1px solid var(--border);border-radius:10px;padding:14px;display:grid;gap:14px}legend{font-weight:600;padding:0 7px}.order-buttons{display:flex;gap:8px;margin-top:8px}
       footer{justify-content:flex-end;margin-top:22px;padding-top:16px;border-top:1px solid var(--border)}.notice{padding:12px 14px;margin:0 0 14px;border-radius:8px;background:var(--success-color,#2e7d32);color:#fff}.error{background:var(--error-color,#db4437);color:#fff}
-      @media(max-width:600px){main{padding:18px 12px 36px}header{align-items:flex-start}h1{font-size:23px}.controller{padding:16px}.controller-head{flex-direction:column}.controller-actions{align-items:flex-start;flex-direction:column}.dialog{padding:18px}.zones{grid-template-columns:1fr}}
+      @media(max-width:700px){.weather-layout{grid-template-columns:1fr}}@media(max-width:600px){main{padding:18px 12px 36px}header{align-items:flex-start}h1{font-size:23px}.controller{padding:16px}.controller-head{flex-direction:column}.controller-actions{align-items:flex-start;flex-direction:column}.dialog{padding:18px}.zones{grid-template-columns:1fr}}
     </style>`;
   }
 }

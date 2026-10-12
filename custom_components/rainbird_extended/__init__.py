@@ -28,6 +28,7 @@ from homeassistant.exceptions import (
 )
 from homeassistant.helpers import (
     config_validation as cv,
+    device_registry as dr,
     entity_registry as er,
     issue_registry as ir,
     service,
@@ -54,6 +55,7 @@ from .const import (
     SERVICE_START_ZONE,
 )
 from .coordinator import RainbirdExtendedCoordinator
+from .entity import find_device
 from .panel import async_register_panel, async_unregister_panel
 
 _LOGGER = logging.getLogger(__name__)
@@ -191,6 +193,24 @@ async def async_setup_entry(
             "This Rain Bird controller has no unique ID, so its zone devices "
             "can't be extended"
         )
+
+    rainbird_device = find_device(
+        hass, rainbird_entry.entry_id, str(rainbird_entry.unique_id)
+    )
+    if rainbird_device is None:
+        raise ConfigEntryNotReady(
+            f"Waiting for the Rain Bird controller device ({rainbird_entry.title})"
+        )
+
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, str(rainbird_entry.unique_id))},
+        connections=rainbird_device.connections,
+        name=entry.title,
+        manufacturer="Rain Bird Extended",
+        entry_type=dr.DeviceEntryType.SERVICE,
+        via_device=(RAINBIRD_DOMAIN, str(rainbird_entry.unique_id)),
+    )
 
     ir.async_delete_issue(hass, DOMAIN, _issue_id(entry))
     coordinator = RainbirdExtendedCoordinator(hass, entry, rainbird_entry)
