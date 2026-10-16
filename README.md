@@ -12,9 +12,12 @@
 
 A Home Assistant custom integration that extends the built-in
 [Rain Bird](https://www.home-assistant.io/integrations/rainbird) integration.
-It adds entities **to the devices Rain Bird already created** and appears there
-as a linked service. It does not create duplicate hardware devices or a second
-connection to the controller.
+Its entities live on its own service devices, one for the controller and one
+for each zone, shown under **Linked devices** on the matching Rain Bird devices
+(and on anything else sharing the controller's MAC address, such as a UniFi
+client). They take their names and areas from the Rain Bird devices and follow
+renames, so entity names match the zones. It uses Rain Bird's connection to
+the controller rather than opening a second one.
 
 Rain Bird Extended also adds an administrator-only **Rain Bird Extended**
 sidebar panel. Configure integration settings and Programs A–D in its in-panel
@@ -369,6 +372,11 @@ so you don't get each zone twice; the switches are disabled by default.
 
 ## Things to know
 
+- **Devices:** before 1.9.0 the entities sat on Rain Bird's own controller
+  and zone devices. They now move to Rain Bird Extended's linked devices, with
+  the same entity IDs. Automations, scripts and dashboards that use entity IDs
+  keep working; device triggers, conditions or actions that picked a Rain Bird
+  device for a Rain Bird Extended entity need that device picked again.
 - **Closing any valve stops all irrigation.** Rain Bird controllers have no
   "stop one zone" command; the core switch behaves the same way.
 - Rain Bird only accepts whole minutes, so runtimes are rounded to the minute.

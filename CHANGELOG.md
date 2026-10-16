@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-10-16
+
+### Changed
+
+- Entities live on Rain Bird Extended's own devices, linked to Rain Bird's,
+  like the other bisman-automations integrations, instead of on Rain Bird's
+  devices with an empty Rain Bird Extended device beside them. There's one
+  service device for the controller, linked by MAC address (so also to the
+  controller's UniFi client), and one for each zone, linked by sharing the
+  zone's identifier and connected through the controller device. They take
+  their names, areas, manufacturer, model and firmware from the Rain Bird
+  devices and follow renames. Entity IDs and names are unchanged; device
+  triggers, conditions or actions that picked the Rain Bird device for one of
+  these entities need the new device picked.
+- The controller device is no longer "connected via" the Rain Bird controller;
+  it's linked instead.
+
 ## [1.8.0] - 2026-10-12
 
 ### Added
@@ -245,6 +262,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[1.9.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.5.0...v1.6.0

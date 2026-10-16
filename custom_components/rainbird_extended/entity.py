@@ -6,15 +6,19 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import UnitOfVolume, UnitOfVolumeFlowRate
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
-from .const import LCR_BUDGET, RAINBIRD_DOMAIN
+from .const import DOMAIN, LCR_BUDGET, RAINBIRD_DOMAIN
 from .coordinator import RainbirdExtendedCoordinator
 
 
 class RainbirdExtendedEntity(CoordinatorEntity[RainbirdExtendedCoordinator]):
-    """An entity attached to a device owned by the core Rain Bird integration."""
+    """An entity on Rain Bird Extended's device for a Rain Bird controller or zone.
+
+    The devices are made at setup (see devices.py), linked to Rain Bird's.
+    """
 
     _attr_has_entity_name = True
 
@@ -24,11 +28,7 @@ class RainbirdExtendedEntity(CoordinatorEntity[RainbirdExtendedCoordinator]):
         """Initialize the entity."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{device_uid}-{key}"
-        # Attach to the device the core Rain Bird integration owns, without
-        # creating a device of our own or changing its details.
-        self.device_entry = find_device(
-            coordinator.hass, coordinator.rainbird_entry.entry_id, device_uid
-        )
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, device_uid)})
 
     async def async_added_to_hass(self) -> None:
         """Also follow the core coordinator so zone state stays in sync."""
@@ -49,7 +49,7 @@ class RainbirdExtendedEntity(CoordinatorEntity[RainbirdExtendedCoordinator]):
 
 
 class RainbirdExtendedControllerEntity(RainbirdExtendedEntity):
-    """An entity on the core Rain Bird controller device."""
+    """An entity on the controller's device."""
 
     def __init__(self, coordinator: RainbirdExtendedCoordinator, key: str) -> None:
         """Initialize the entity."""
@@ -57,7 +57,7 @@ class RainbirdExtendedControllerEntity(RainbirdExtendedEntity):
 
 
 class RainbirdExtendedZoneEntity(RainbirdExtendedEntity):
-    """An entity on a zone device owned by the core Rain Bird integration."""
+    """An entity on a zone's device."""
 
     def __init__(
         self, coordinator: RainbirdExtendedCoordinator, zone: int, key: str

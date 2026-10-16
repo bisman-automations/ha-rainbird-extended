@@ -40,47 +40,88 @@ REMAINING = "sensor.rain_bird_sprinkler_2_time_remaining"
 
 
 @pytest.mark.usefixtures("setup_integrations")
-async def test_entities_linked_to_zone_devices(
+async def test_entities_on_linked_devices(
     hass: HomeAssistant,
     rainbird_entry: MockConfigEntry,
     extended_entry: MockConfigEntry,
     entity_registry: er.EntityRegistry,
     device_registry: dr.DeviceRegistry,
 ) -> None:
-    """Keep entities on Rain Bird devices and link the service entry to controller."""
+    """Our entities live on our own devices, linked to Rain Bird's."""
     controller = device_registry.async_get_device_by_identifier(
         ("rainbird", RAINBIRD_UNIQUE_ID), rainbird_entry.entry_id
     )
     assert controller is not None
-    service_device = device_registry.async_get_device_by_identifier(
+    own = device_registry.async_get_device_by_identifier(
         ("rainbird_extended", RAINBIRD_UNIQUE_ID), extended_entry.entry_id
     )
-    assert service_device is not None
-    assert service_device.name == extended_entry.title
-    assert service_device.manufacturer == "Rain Bird Extended"
-    assert service_device.entry_type is dr.DeviceEntryType.SERVICE
-    assert service_device.via_device_id == controller.id
+    assert own is not None
+    assert own.name == controller.name
+    # The hardware's details, for HomeKit Extended's accessory information.
+    assert own.manufacturer == controller.manufacturer
+    assert own.model == controller.model
+    assert own.sw_version == controller.sw_version
+    assert own.entry_type is dr.DeviceEntryType.SERVICE
+    assert own.via_device_id is None
+    # Linked to the controller (and anything else with its MAC) by connection.
     assert controller.connections
-    assert service_device.connections >= controller.connections
-    assert service_device in device_registry.async_get_devices(
-        connections=controller.connections
-    )
+    assert own.connections == controller.connections
+    controller_keys = {
+        entry.translation_key
+        for entry in er.async_entries_for_device(entity_registry, own.id)
+    }
+    assert {"run_all_zones", "stop_irrigation", "irrigating"} <= controller_keys
+    # Rain Bird's controller device keeps only its own entities.
+    assert {
+        entry.platform
+        for entry in er.async_entries_for_device(entity_registry, controller.id)
+    } <= {"rainbird"}
 
+    zone_devices = []
     for zone in ZONES:
-        device = device_registry.async_get_device_by_identifier(
-            ("rainbird", f"{RAINBIRD_UNIQUE_ID}-{zone}"), rainbird_entry.entry_id
+        uid = f"{RAINBIRD_UNIQUE_ID}-{zone}"
+        rainbird_zone = device_registry.async_get_device_by_identifier(
+            ("rainbird", uid), rainbird_entry.entry_id
         )
-        assert device is not None
-        assert device.name == f"Rain Bird Sprinkler {zone}"
-        domains = {
+        assert rainbird_zone is not None
+        # Lookups by Rain Bird's identifier still find Rain Bird's device.
+        assert (
+            device_registry.async_get_device_by_identifier(
+                ("rainbird", uid), rainbird_entry.entry_id
+            )
+            == rainbird_zone
+        )
+        zone_device = device_registry.async_get_device_by_identifier(
+            ("rainbird_extended", uid), extended_entry.entry_id
+        )
+        assert zone_device is not None
+        zone_devices.append(zone_device)
+        assert zone_device.name == f"Rain Bird Sprinkler {zone}"
+        assert zone_device.entry_type is dr.DeviceEntryType.SERVICE
+        # Shares the zone's identifier, so they're linked.
+        assert ("rainbird", uid) in zone_device.identifiers
+        assert zone_device in device_registry.async_get_devices(
+            identifiers={("rainbird", uid)}
+        )
+        # Connected through our controller device, where HomeKit Extended
+        # looks for Run all zones, Stop and Irrigating.
+        assert zone_device.via_device_id == own.id
+        # The valve, its runtime and time remaining share a device, as
+        # HomeKit Extended's linked valve duration and end time need.
+        assert {
             entry.domain
-            for entry in er.async_entries_for_device(entity_registry, device.id)
-        }
-        assert domains == {"switch", "valve", "number", "sensor", "event"}
-    # The linked service device is the only Rain Bird Extended device.
-    assert dr.async_entries_for_config_entry(
-        device_registry, extended_entry.entry_id
-    ) == [service_device]
+            for entry in er.async_entries_for_device(entity_registry, zone_device.id)
+        } == {"valve", "number", "sensor", "event"}
+        assert {
+            entry.domain
+            for entry in er.async_entries_for_device(entity_registry, rainbird_zone.id)
+        } == {"switch"}
+    assert sorted(
+        d.id
+        for d in dr.async_entries_for_config_entry(
+            device_registry, extended_entry.entry_id
+        )
+    ) == sorted([own.id, *(d.id for d in zone_devices)])
 
     valve = hass.states.get(VALVE)
     assert valve.state == "closed"
@@ -332,3 +373,62 @@ async def test_waits_for_rainbird_and_follows_reload(
         VALVE_DOMAIN, SERVICE_OPEN_VALVE, {ATTR_ENTITY_ID: VALVE}, blocking=True
     )
     mock_rainbird.irrigate_zone.assert_awaited_once_with(2, 6)
+
+
+async def test_entities_move_to_own_devices(
+    hass: HomeAssistant,
+    mock_rainbird: MagicMock,
+    rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
+    entity_registry: er.EntityRegistry,
+    device_registry: dr.DeviceRegistry,
+) -> None:
+    """Upgrading from 1.8: entities leave Rain Bird's devices, ids unchanged."""
+    assert await hass.config_entries.async_setup(rainbird_entry.entry_id)
+    await hass.async_block_till_done()
+    rainbird_zone = device_registry.async_get_device_by_identifier(
+        ("rainbird", f"{RAINBIRD_UNIQUE_ID}-2"), rainbird_entry.entry_id
+    )
+    device_registry.async_update_device(rainbird_zone.id, name_by_user="Front Yard")
+    # 1.8.0 put the valve on Rain Bird's zone device, and had a service device
+    # connected through the controller.
+    old = entity_registry.async_get_or_create(
+        "valve",
+        "rainbird_extended",
+        f"{RAINBIRD_UNIQUE_ID}-2-valve",
+        config_entry=extended_entry,
+        device_id=rainbird_zone.id,
+        suggested_object_id="front_yard",
+    )
+    controller = device_registry.async_get_device_by_identifier(
+        ("rainbird", RAINBIRD_UNIQUE_ID), rainbird_entry.entry_id
+    )
+    device_registry.async_get_or_create(
+        config_entry_id=extended_entry.entry_id,
+        identifiers={("rainbird_extended", RAINBIRD_UNIQUE_ID)},
+        name="Rain Bird Extended",
+        entry_type=dr.DeviceEntryType.SERVICE,
+        via_device_id=controller.id,
+    )
+    assert await hass.config_entries.async_setup(extended_entry.entry_id)
+    await hass.async_block_till_done()
+
+    moved = entity_registry.async_get(old.entity_id)
+    assert moved.entity_id == "valve.front_yard"
+    zone_device = device_registry.async_get(moved.device_id)
+    assert ("rainbird_extended", f"{RAINBIRD_UNIQUE_ID}-2") in zone_device.identifiers
+    assert zone_device.name == "Front Yard"
+    assert hass.states.get("valve.front_yard").name == "Front Yard"
+    own = device_registry.async_get_device_by_identifier(
+        ("rainbird_extended", RAINBIRD_UNIQUE_ID), extended_entry.entry_id
+    )
+    assert own.via_device_id is None
+    assert own.name == controller.name
+
+    # Renaming the Rain Bird zone renames ours.
+    device_registry.async_update_device(rainbird_zone.id, name_by_user="Back Yard")
+    await hass.async_block_till_done()
+    assert device_registry.async_get(zone_device.id).name == "Back Yard"
+
+    await hass.config_entries.async_unload(extended_entry.entry_id)
+    await hass.config_entries.async_unload(rainbird_entry.entry_id)

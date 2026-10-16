@@ -1,7 +1,7 @@
 """Rain Bird Extended: per-zone valves, run times and time remaining.
 
-Adds entities to the zone devices created by the core Rain Bird integration,
-reusing its connection to the controller.
+Adds its own controller and zone devices, linked to the ones the core Rain Bird
+integration created, reusing its connection to the controller.
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ from homeassistant.exceptions import (
 )
 from homeassistant.helpers import (
     config_validation as cv,
-    device_registry as dr,
     entity_registry as er,
     issue_registry as ir,
     service,
@@ -55,6 +54,7 @@ from .const import (
     SERVICE_START_ZONE,
 )
 from .coordinator import RainbirdExtendedCoordinator
+from .devices import async_follow_renames, async_sync_devices
 from .entity import find_device
 from .panel import async_register_panel, async_unregister_panel
 
@@ -202,19 +202,12 @@ async def async_setup_entry(
             f"Waiting for the Rain Bird controller device ({rainbird_entry.title})"
         )
 
-    dr.async_get(hass).async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, str(rainbird_entry.unique_id))},
-        connections=rainbird_device.connections,
-        name=entry.title,
-        manufacturer="Rain Bird Extended",
-        entry_type=dr.DeviceEntryType.SERVICE,
-        via_device=(RAINBIRD_DOMAIN, str(rainbird_entry.unique_id)),
-    )
-
     ir.async_delete_issue(hass, DOMAIN, _issue_id(entry))
     coordinator = RainbirdExtendedCoordinator(hass, entry, rainbird_entry)
     coordinator.linked_zones = coordinator.linkable_zones()
+    # Our own devices, linked to Rain Bird's, before the entities join them.
+    linked = async_sync_devices(hass, entry, rainbird_entry, coordinator.linked_zones)
+    async_follow_renames(hass, entry, rainbird_entry, coordinator.linked_zones, linked)
     await coordinator.async_refresh()
     entry.runtime_data = coordinator
     coordinator.async_start()
