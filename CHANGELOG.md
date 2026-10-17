@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2026-10-17
+
+### Changed
+
+- Ready for Home Assistant 2026.11: the controller's schedule is loaded through
+  Rain Bird's new shared loader (once, together with Rain Bird's own calendar
+  and next-run sensors), and code paths Home Assistant has deprecated for
+  removal are no longer used.
+
 ## [1.9.0] - 2026-10-16
 
 ### Changed
@@ -20,10 +29,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   these entities need the new device picked.
 - The controller device is no longer "connected via" the Rain Bird controller;
   it's linked instead.
-- Ready for Home Assistant 2026.11: the controller's schedule is loaded through
-  Rain Bird's new shared loader (once, together with Rain Bird's own calendar
-  and next-run sensors), and code paths Home Assistant has deprecated for
-  removal are no longer used.
 
 ## [1.8.0] - 2026-10-12
 
@@ -266,6 +271,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[1.9.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.6.0...v1.7.0
