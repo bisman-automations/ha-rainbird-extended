@@ -151,3 +151,18 @@ async def test_stale_seasonal_adjustment_removed(
     assert hass.states.get("number.rain_bird_controller_seasonal_adjustment_a")
     await hass.config_entries.async_unload(extended_entry.entry_id)
     await hass.config_entries.async_unload(rainbird_entry.entry_id)
+
+
+async def test_schedule_loaded_through_rainbird(
+    hass: HomeAssistant,
+    mock_rainbird: MagicMock,
+    rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
+) -> None:
+    """Home Assistant 2026.11+: Rain Bird loads its schedule once, for everyone."""
+    await _setup(hass, rainbird_entry)
+    schedule = rainbird_entry.runtime_data.schedule_coordinator
+    schedule.async_load = MagicMock()
+    await _setup(hass, extended_entry)
+    schedule.async_load.assert_called_once_with()
+    await _unload(hass, rainbird_entry, extended_entry)

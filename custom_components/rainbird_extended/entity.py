@@ -76,12 +76,10 @@ def find_device(
     hass: HomeAssistant, rainbird_entry_id: str, device_uid: str
 ) -> dr.DeviceEntry | None:
     """Find a device created by the core Rain Bird integration."""
-    registry = dr.async_get(hass)
-    identifier = (RAINBIRD_DOMAIN, device_uid)
-    if hasattr(registry, "async_get_device_by_identifier"):
-        # Home Assistant 2026.9+: identifiers are scoped to a config entry.
-        return registry.async_get_device_by_identifier(identifier, rainbird_entry_id)
-    return registry.async_get_device(identifiers={identifier})
+    # Identifiers are scoped to a config entry (Home Assistant 2026.9+).
+    return dr.async_get(hass).async_get_device_by_identifier(
+        (RAINBIRD_DOMAIN, device_uid), rainbird_entry_id
+    )
 
 
 def water_budget_naming(key: int) -> tuple[str, str, dict[str, str]]:

@@ -300,7 +300,11 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             self.config_entry.async_on_unload(
                 self.schedule.async_add_listener(self.async_update_listeners)
             )
-            if self.schedule.data is None:
+            if (load := getattr(self.schedule, "async_load", None)) is not None:
+                # Home Assistant 2026.11+: loads the schedule once, shared
+                # with Rain Bird's own calendar and next-run sensors.
+                load()
+            elif self.schedule.data is None:
                 self.config_entry.async_create_background_task(
                     self.hass,
                     self.schedule.async_request_refresh(),

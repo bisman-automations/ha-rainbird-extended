@@ -150,10 +150,7 @@ def _zone_names(
         else:
             continue
         zone = int(parts[1])
-        device = next(
-            (device for device in registry.devices if device.id == entity.device_id),
-            None,
-        )
+        device = registry.async_get(entity.device_id)
         if device is not None:
             names.setdefault(zone, device.name_by_user or device.name or f"Zone {zone}")
 

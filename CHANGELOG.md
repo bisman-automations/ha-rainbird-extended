@@ -20,6 +20,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   these entities need the new device picked.
 - The controller device is no longer "connected via" the Rain Bird controller;
   it's linked instead.
+- Ready for Home Assistant 2026.11: the controller's schedule is loaded through
+  Rain Bird's new shared loader (once, together with Rain Bird's own calendar
+  and next-run sensors), and code paths Home Assistant has deprecated for
+  removal are no longer used.
 
 ## [1.8.0] - 2026-10-12
 
