@@ -4,6 +4,6 @@ pytest-homeassistant-custom-component==0.13.368
 # Match the version Home Assistant's Rain Bird integration requires (2026.10).
 # CI also runs the oldest supported Home Assistant; see ci.yml.
 pyrainbird==6.6.0
-ruff==0.16.10
+ruff==0.17.1
 mypy==2.4.0
 pytest-cov==7.1.0
