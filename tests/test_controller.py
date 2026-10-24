@@ -350,3 +350,38 @@ async def test_run_all_zones_stopped_elsewhere(
     await _poll_core(hass, freezer)
     await _advance(hass, freezer, timedelta(minutes=10))
     assert setup_integrations.irrigate_zone.await_count == 1
+
+
+@pytest.mark.parametrize("extended_options", [{}])
+async def test_stop_and_turn_off_needs_a_power_switch(
+    hass: HomeAssistant,
+    setup_integrations: MagicMock,
+    extended_entry: MockConfigEntry,
+) -> None:
+    """Turning the controller off needs a switch or input boolean to turn off."""
+    hass.states.async_set("switch.irrigation_controller", "on")
+    hass.states.async_set("binary_sensor.controller_power", "on")
+    for power, error in (
+        (None, "power_switch_required"),
+        ("binary_sensor.controller_power", "power_switch_required"),
+        ("switch.irrigation_controller", None),
+    ):
+        result = await _open_options(hass, extended_entry.entry_id)
+        values = {CONF_STOP_ACTION: "stop_and_turn_off"}
+        if power:
+            values["controller_power_entity"] = power
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], nest(values)
+        )
+        if error:
+            assert result["errors"] == {CONF_STOP_ACTION: error}
+            await hass.config_entries.options.async_configure(
+                result["flow_id"], nest({CONF_STOP_ACTION: STOP_ACTION_STOP_IRRIGATION})
+            )
+        else:
+            assert result["type"] is FlowResultType.CREATE_ENTRY
+        await hass.async_block_till_done()
+    assert extended_entry.options[CONF_STOP_ACTION] == "stop_and_turn_off"
+    assert extended_entry.options["controller_power_entity"] == (
+        "switch.irrigation_controller"
+    )

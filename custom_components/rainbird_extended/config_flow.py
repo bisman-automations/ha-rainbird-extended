@@ -73,6 +73,7 @@ from .const import (
     DEFAULT_STOP_ACTION,
     DOMAIN,
     POWER_ENTITY_DOMAINS,
+    POWER_SWITCH_DOMAINS,
     RAINBIRD_DOMAIN,
     SECTION_BLOWOUT,
     SECTION_FREEZE_SKIP,
@@ -81,6 +82,7 @@ from .const import (
     SECTION_RUN_ALL_ZONES,
     SECTION_WEATHER,
     SECTION_WEATHER_ADJUSTMENT,
+    STOP_ACTION_TURN_OFF,
     STOP_ACTIONS,
     TEMPERATURE_DEFAULTS,
 )
@@ -276,6 +278,12 @@ class RainbirdExtendedOptions(OptionsFlowWithReload):
                     continue
                 # Stored as zone numbers, in the order they were arranged.
                 data[key] = list(dict.fromkeys(zone_of[e] for e in picked))
+            power = data.get(CONF_POWER_ENTITY) or ""
+            if data.get(CONF_STOP_ACTION) == STOP_ACTION_TURN_OFF and (
+                power.split(".")[0] not in POWER_SWITCH_DOMAINS
+            ):
+                # Turning the controller off needs a switch to turn off.
+                errors[CONF_STOP_ACTION] = "power_switch_required"
             if not errors:
                 data[CONF_TEMPERATURE_UNIT] = unit
                 # Keep the programs, which have forms of their own.

@@ -29,12 +29,12 @@
       "settings": {
         "title": "Settings",
         "data": {
-          "stop_action": "Stop irrigation action",
+          "stop_action": "Stop irrigation button",
           "disable_rainbird_switches": "Disable the Rain Bird zone switches",
           "controller_power_entity": "Controller power"
         },
         "data_description": {
-          "stop_action": "Choose what the dashboard's Stop irrigation control does. Additional actions will appear when supported by the Rain Bird integration.",
+          "stop_action": "What the dashboard's Stop irrigation button does. Stop watering stops what's running now; programs still run at their next start time. Stop watering and turn the controller off also turns off the Controller power switch, so nothing runs until it's turned back on (for example for the winter).",
           "disable_rainbird_switches": "Each zone's valve replaces its Rain Bird switch, so the switches are disabled to avoid having every zone twice (for example in HomeKit). Turn this off to keep both.",
           "controller_power_entity": "Optional. An on/off entity that's off while the controller is turned off, such as a Controller switch from another integration. While it's off, the Schedule calendar shows no watering, each zone's Estimated next run is unknown, and the dashboard shows Turned off."
         },
@@ -234,7 +234,8 @@
     },
     "error": {
       "invalid_zones": "Pick only this controller's zones.",
-      "no_days": "Pick at least one day for a Custom program."
+      "no_days": "Pick at least one day for a Custom program.",
+      "power_switch_required": "To turn the controller off, pick a switch or input boolean as Controller power."
     }
   },
   "entity": {
@@ -540,7 +541,8 @@
   "selector": {
     "stop_action": {
       "options": {
-        "stop_irrigation": "Stop active irrigation"
+        "stop_irrigation": "Stop watering",
+        "stop_and_turn_off": "Stop watering and turn the controller off"
       }
     },
     "frequency": {

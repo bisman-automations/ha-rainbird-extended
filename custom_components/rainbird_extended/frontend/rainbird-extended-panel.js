@@ -1,5 +1,6 @@
 const DOMAIN = "rainbird_extended";
 const STOP_ACTION_STOP_IRRIGATION = "stop_irrigation";
+const STOP_ACTION_TURN_OFF = "stop_and_turn_off";
 
 class RainbirdExtendedPanel extends HTMLElement {
   set hass(hass) {
@@ -146,6 +147,7 @@ class RainbirdExtendedPanel extends HTMLElement {
         this._pendingStop = {
           action: button.dataset.stopAction,
           entityId: button.dataset.buttonEntityId,
+          powerEntityId: button.dataset.powerEntityId,
         };
         this._render();
       });
@@ -210,10 +212,10 @@ class RainbirdExtendedPanel extends HTMLElement {
       </div>
       <div class="controller-actions">
         <button class="primary" data-action="configure" data-entry-id="${this._escape(controller.entry_id)}">Configure integration</button>
-        ${controller.stop_button ? `<button class="danger" data-action="request-stop" data-stop-action="${this._escape(controller.stop_action || STOP_ACTION_STOP_IRRIGATION)}" data-button-entity-id="${this._escape(controller.stop_button)}">Stop irrigation</button>` : ""}
+        ${controller.stop_button ? `<button class="danger" data-action="request-stop" data-stop-action="${this._escape(this._stopAction(controller))}" data-button-entity-id="${this._escape(controller.stop_button)}" data-power-entity-id="${this._escape(controller.power_entity || "")}">${this._stopAction(controller) === STOP_ACTION_TURN_OFF ? "Stop and turn off" : "Stop irrigation"}</button>` : ""}
         <span class="muted">${this._escape(controller.title)} · ${this._escape(controller.state)}</span>
       </div>
-      ${controller.stop_button ? `<p class="stop-note">Stops active watering only. Configured programs remain enabled.</p>` : ""}
+      ${controller.stop_button ? `<p class="stop-note">${this._stopAction(controller) === STOP_ACTION_TURN_OFF ? "Stops watering and turns the controller off. Programs won't run until it's turned back on." : "Stops active watering only. Configured programs remain enabled."}</p>` : ""}
       ${this._weatherAndRainDelay(controller)}
       ${
         controller.programs?.length
@@ -370,7 +372,22 @@ class RainbirdExtendedPanel extends HTMLElement {
     }).format(new Date(year, month - 1, day, 12));
   }
 
+  // The Stop button's action; turning off needs a power switch to turn off.
+  _stopAction(controller) {
+    const domain = (controller.power_entity || "").split(".")[0];
+    return controller.stop_action === STOP_ACTION_TURN_OFF && ["switch", "input_boolean"].includes(domain)
+      ? STOP_ACTION_TURN_OFF
+      : STOP_ACTION_STOP_IRRIGATION;
+  }
+
   _stopConfirmation() {
+    if (this._pendingStop?.action === STOP_ACTION_TURN_OFF) {
+      return `<div class="backdrop"><section class="dialog">
+      ${this._dialogHeader("Stop and turn off the controller?")}
+      <p class="description">This stops active watering now and turns the controller off. Its programs won't run until you turn it back on.</p>
+      <footer><button class="secondary" data-action="cancel-stop">Cancel</button><button class="danger" data-action="confirm-stop">Stop and turn off</button></footer>
+    </section></div>`;
+    }
     return `<div class="backdrop"><section class="dialog">
       ${this._dialogHeader("Stop irrigation?")}
       <p class="description">This stops active watering now. It does not disable the controller or change its configured programs; they may run at their next scheduled time.</p>
@@ -384,14 +401,20 @@ class RainbirdExtendedPanel extends HTMLElement {
     this._pendingStop = undefined;
     this._render();
     try {
-      if (pending.action !== STOP_ACTION_STOP_IRRIGATION || !pending.entityId) {
+      const turnOff = pending.action === STOP_ACTION_TURN_OFF;
+      if (!pending.entityId || (turnOff && !pending.powerEntityId)) {
         throw new Error("The configured stop action is not supported.");
       }
       await this._hass.callService("button", "press", {
         entity_id: pending.entityId,
       });
+      if (turnOff) {
+        await this._hass.callService("homeassistant", "turn_off", {
+          entity_id: pending.powerEntityId,
+        });
+      }
       await this._refresh();
-      this._showNotice("Active irrigation stopped.");
+      this._showNotice(turnOff ? "Irrigation stopped and the controller turned off." : "Active irrigation stopped.");
     } catch (error) {
       this._showNotice(error?.message || "Unable to stop irrigation.", true);
     }
@@ -643,7 +666,7 @@ class RainbirdExtendedPanel extends HTMLElement {
     if (type === "select") {
       const options = config.select?.options || config.options || [];
       const multiple = Boolean(config.select?.multiple ?? config.multiple);
-      const translationKey = config.select?.translation_key;
+      const translationKey = config.select?.translation_key ?? config.translation_key;
       const selected = Array.isArray(value) ? value.map(String) : [String(value ?? "")];
       const rendered = options.map((option) => {
         const optionValue = typeof option === "object" ? option.value : option;

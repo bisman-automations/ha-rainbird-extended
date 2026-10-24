@@ -16,7 +16,11 @@ CONF_RAINBIRD_ENTRY_ID = "rainbird_entry_id"
 # controller actions can be added when the Rain Bird integration supports them.
 CONF_STOP_ACTION = "stop_action"
 STOP_ACTION_STOP_IRRIGATION = "stop_irrigation"
-STOP_ACTIONS = (STOP_ACTION_STOP_IRRIGATION,)
+# Also turns off the Controller power entity (a switch or input_boolean).
+STOP_ACTION_TURN_OFF = "stop_and_turn_off"
+STOP_ACTIONS = (STOP_ACTION_STOP_IRRIGATION, STOP_ACTION_TURN_OFF)
+# Power entities the dashboard can turn off.
+POWER_SWITCH_DOMAINS = ("switch", "input_boolean")
 DEFAULT_STOP_ACTION = STOP_ACTION_STOP_IRRIGATION
 
 # Valve runtime limits, in seconds. Rain Bird runs zones in whole minutes,

@@ -31,10 +31,15 @@ Above Programs, the panel shows up to ten daily forecasts from the configured
 weather entity and lets you set the controller's current rain delay. Rain Skip
 continues to check today's forecast once daily using its configured threshold
 and delay.
-The status follows live Rain Bird entity states. The Stop irrigation action is
-configurable in integration settings; currently it stops active watering
-without disabling future scheduled programs. Additional actions can be added
-when supported by the Rain Bird integration.
+The status follows live Rain Bird entity states. The dashboard's **Stop
+irrigation** button is set in the settings under **Stop irrigation button**:
+
+- **Stop watering** stops what's running now; programs still run at their
+  next start time.
+- **Stop watering and turn the controller off** also turns off the
+  [Controller power](#controller-power) switch, so nothing runs until it's
+  turned back on, for example for the winter. It needs a switch or input
+  boolean as Controller power.
 
 Rain Bird Extended also adds an administrator-only **Rain Bird Extended**
 sidebar panel. Configure integration settings and Programs A–D in its in-panel

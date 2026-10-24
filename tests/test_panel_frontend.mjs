@@ -430,3 +430,55 @@ test("settings dialog shows a skeleton while opening and a spinner while saving"
   };
   assert.match(panel._flowDialog(), /data-next-step="settings" disabled/);
 });
+
+test("settings dropdowns show translated labels, not raw values", () => {
+  const panel = new Panel();
+  const labels = {
+    "component.rainbird_extended.selector.stop_action.options.stop_irrigation": "Stop watering",
+  };
+  panel._hass = { localize: (key) => labels[key] || "" };
+  panel._flow = { step: { type: "form", step_id: "settings" } };
+  const html = panel._renderField(
+    {
+      name: "stop_action",
+      selector: { select: { options: ["stop_irrigation"], translation_key: "stop_action" } },
+    },
+    [],
+    { stop_action: "stop_irrigation" },
+  );
+  assert.match(html, />Stop watering</);
+  assert.doesNotMatch(html, />stop_irrigation</);
+});
+
+test("Stop can also turn the controller off", async () => {
+  const panel = new Panel();
+  const calls = [];
+  panel._hass = {
+    states: {},
+    callService: async (domain, service, data) => calls.push([domain, service, data.entity_id]),
+  };
+  panel._render = () => {};
+  panel._refresh = async () => {};
+  panel._showNotice = (message) => calls.push(["notice", message]);
+  const controller = {
+    stop_action: "stop_and_turn_off",
+    power_entity: "switch.irrigation_controller",
+  };
+  assert.equal(panel._stopAction(controller), "stop_and_turn_off");
+  // Without a switch to turn off it only stops watering.
+  assert.equal(panel._stopAction({ ...controller, power_entity: "binary_sensor.power" }), "stop_irrigation");
+  assert.equal(panel._stopAction({ stop_action: "stop_irrigation" }), "stop_irrigation");
+
+  panel._pendingStop = {
+    action: "stop_and_turn_off",
+    entityId: "button.stop",
+    powerEntityId: "switch.irrigation_controller",
+  };
+  assert.match(panel._stopConfirmation(), /turns the controller off/);
+  await panel._stopIrrigation();
+  assert.deepEqual(calls, [
+    ["button", "press", "button.stop"],
+    ["homeassistant", "turn_off", "switch.irrigation_controller"],
+    ["notice", "Irrigation stopped and the controller turned off."],
+  ]);
+});
