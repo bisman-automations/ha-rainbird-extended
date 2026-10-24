@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.1] - 2026-10-24
+
+### Added
+
+- The sidebar dashboard shows a loading placeholder shaped like the controller
+  card while it first loads, instead of a line of text. **Refresh** shows a
+  spinner while it's refreshing, and the settings dialog shows placeholders
+  while it opens and a spinner on **Save** while saving. The animations stop
+  when the device asks for reduced motion.
+
 ## [1.10.0] - 2026-10-23
 
 ### Added
@@ -283,6 +293,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[1.10.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.8.0...v1.9.0

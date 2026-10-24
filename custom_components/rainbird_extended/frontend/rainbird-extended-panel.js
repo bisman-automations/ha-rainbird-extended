@@ -50,15 +50,70 @@ class RainbirdExtendedPanel extends HTMLElement {
   }
 
   async _refresh() {
-    this._data = await this._hass.callWS({
-      type: `${DOMAIN}/panel/config`,
-    });
-    this._powerStatesChanged();
+    this._setRefreshing(true);
+    try {
+      this._data = await this._hass.callWS({
+        type: `${DOMAIN}/panel/config`,
+      });
+      this._powerStatesChanged();
+    } finally {
+      this._setRefreshing(false);
+    }
     this._render();
   }
 
   _renderLoading() {
-    this.shadowRoot.innerHTML = `${this._styles()}<main><p>Loading Rain Bird Extended…</p></main>`;
+    this.shadowRoot.innerHTML = `${this._styles()}<main aria-busy="true">
+      ${this._header()}
+      <span class="visually-hidden" role="status">Loading Rain Bird Extended…</span>
+      <div class="controller-list" aria-hidden="true">${this._skeletonCard()}</div>
+    </main>`;
+  }
+
+  // Placeholder shaped like a controller card while the dashboard loads.
+  _skeletonCard() {
+    const boxes = (count, className) =>
+      Array.from({ length: count }, () => `<div class="skeleton ${className}"></div>`).join("");
+    return `<section class="controller skeleton-card">
+      <div class="skeleton line eyebrow-line"></div>
+      <div class="skeleton line title-line"></div>
+      <div class="skeleton line short-line"></div>
+      <div class="skeleton-row">${boxes(2, "pill")}</div>
+      <div class="skeleton-row">${boxes(2, "button-shape")}</div>
+      <div class="skeleton line heading-line"></div>
+      <div class="skeleton-grid forecast-skeleton">${boxes(4, "box")}</div>
+      <div class="skeleton line heading-line"></div>
+      <div class="skeleton-grid">${boxes(3, "box small-box")}</div>
+      <div class="skeleton line heading-line"></div>
+      <div class="skeleton-grid">${boxes(2, "box")}</div>
+    </section>`;
+  }
+
+  _header() {
+    return `<header>
+          <div>
+            <h1>Rain Bird Extended</h1>
+            <p>Controller settings, programs, and per-zone configuration.</p>
+          </div>
+          ${this._refreshButton()}
+        </header>`;
+  }
+
+  _refreshButton() {
+    if (this._refreshing && !this._data) {
+      // First load: the skeleton already shows it's loading.
+      return `<button class="secondary" data-action="refresh" disabled>Refresh</button>`;
+    }
+    return this._refreshing
+      ? `<button class="secondary" data-action="refresh" disabled aria-busy="true"><span class="spinner" aria-hidden="true"></span>Refreshing…</button>`
+      : `<button class="secondary" data-action="refresh">Refresh</button>`;
+  }
+
+  // Show the refresh in progress on the button, keeping the page as it is.
+  _setRefreshing(refreshing) {
+    this._refreshing = refreshing;
+    const button = this.shadowRoot?.querySelector('[data-action="refresh"]');
+    if (button) button.outerHTML = this._refreshButton();
   }
 
   _renderError(error) {
@@ -69,13 +124,7 @@ class RainbirdExtendedPanel extends HTMLElement {
     const controllers = this._data?.controllers || [];
     this.shadowRoot.innerHTML = `${this._styles()}
       <main>
-        <header>
-          <div>
-            <h1>Rain Bird Extended</h1>
-            <p>Controller settings, programs, and per-zone configuration.</p>
-          </div>
-          <button class="secondary" data-action="refresh">Refresh</button>
-        </header>
+        ${this._header()}
         ${
           controllers.length
             ? `<div class="controller-list">${controllers.map((controller) => this._controllerCard(controller)).join("")}</div>`
@@ -84,7 +133,9 @@ class RainbirdExtendedPanel extends HTMLElement {
         ${this._flow ? this._flowDialog() : ""}
         ${this._pendingStop ? this._stopConfirmation() : ""}
       </main>`;
-    this.shadowRoot.querySelector('[data-action="refresh"]')?.addEventListener("click", () => {
+    this.shadowRoot.addEventListener("click", this._onRefreshClick ||= (event) => {
+      // Delegated, because the button is swapped while refreshing.
+      if (!event.target.closest?.('[data-action="refresh"]:not([disabled])')) return;
       this._refresh().catch((error) => this._showNotice(error?.message || "Unable to refresh the dashboard.", true));
     });
     this.shadowRoot.querySelectorAll('[data-action="configure"]').forEach((button) => {
@@ -453,15 +504,22 @@ class RainbirdExtendedPanel extends HTMLElement {
   _flowDialog() {
     const flow = this._flow;
     const step = flow.step;
-    if (flow.loading || !step) {
-      return `<div class="backdrop"><section class="dialog"><p>Opening configuration…</p></section></div>`;
+    if (!step) {
+      return `<div class="backdrop"><section class="dialog" aria-busy="true">
+        <span class="visually-hidden" role="status">Opening configuration…</span>
+        <div aria-hidden="true">
+          <div class="skeleton line title-line"></div>
+          <div class="skeleton line"></div>
+          ${Array.from({ length: 4 }, () => '<div class="skeleton line short-line"></div><div class="skeleton field-shape"></div>').join("")}
+        </div>
+      </section></div>`;
     }
     if (step.type === "menu") {
       const options = (step.menu_options || []).map((option) => {
         const label = this._localize(`component.${DOMAIN}.options.step.${step.step_id}.menu_options.${option}`, option.replaceAll("_", " "));
-        return `<button class="menu-option" data-next-step="${this._escape(option)}">${this._escape(label)}<span>›</span></button>`;
+        return `<button class="menu-option" data-next-step="${this._escape(option)}" ${flow.loading ? "disabled" : ""}>${this._escape(label)}<span>›</span></button>`;
       }).join("");
-      return `<div class="backdrop"><section class="dialog">
+      return `<div class="backdrop"><section class="dialog" ${flow.loading ? 'aria-busy="true"' : ""}>
         ${this._dialogHeader(this._stepTitle(step))}
         <p class="description">${this._stepDescription(step)}</p>
         <div class="menu">${options}</div>
@@ -480,7 +538,11 @@ class RainbirdExtendedPanel extends HTMLElement {
         <p class="description">${this._stepDescription(step)}</p>
         ${errors ? `<div class="errors">${errors}</div>` : ""}
         <form id="options-form">${fields}</form>
-        <footer><button class="secondary" data-action="close-flow">Cancel</button><button class="primary" data-action="submit-flow" ${flow.loading ? "disabled" : ""}>Save</button></footer>
+        <footer><button class="secondary" data-action="close-flow" ${flow.loading ? "disabled" : ""}>Cancel</button>${
+          flow.loading
+            ? `<button class="primary" data-action="submit-flow" disabled aria-busy="true"><span class="spinner" aria-hidden="true"></span>Saving…</button>`
+            : `<button class="primary" data-action="submit-flow">Save</button>`
+        }</footer>
       </section></div>`;
     }
     if (step.type === "create_entry") {
@@ -798,6 +860,14 @@ class RainbirdExtendedPanel extends HTMLElement {
       button{font:inherit;border:0;border-radius:8px;padding:10px 16px;cursor:pointer}button:disabled{opacity:.55;cursor:wait}.primary{background:var(--blue);color:var(--text-primary-color,#fff);font-weight:600}.secondary{background:var(--secondary-background-color,#f1f3f4);color:var(--primary-text-color)}.compact{padding:6px 10px;font-size:12px}
       .zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.zone{border:1px solid var(--border);border-radius:10px;padding:14px}.number-row{display:grid;gap:6px;margin:12px 0;font-size:13px}.number-input,.number-control{display:flex;align-items:center;gap:7px}.number-input input,.number-control input{min-width:0;flex:1}.number-input small,.number-control small,.number-control output{color:var(--secondary-text-color)}input,select{font:inherit;color:var(--primary-text-color);background:var(--input-fill-color,var(--card-background-color,#fff));border:1px solid var(--border);border-radius:7px;padding:9px;min-width:0;width:100%}input[type=range],input[type=checkbox]{width:auto}
       .empty{text-align:center;padding:48px 22px}.empty h2{margin-bottom:8px}
+      .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+      .skeleton{--skeleton-base:color-mix(in srgb,var(--primary-text-color,#000) 8%,transparent);--skeleton-shine:color-mix(in srgb,var(--primary-text-color,#000) 14%,transparent);background:linear-gradient(90deg,var(--skeleton-base) 0%,var(--skeleton-shine) 50%,var(--skeleton-base) 100%);background-size:200% 100%;border-radius:8px;animation:rbx-shimmer 1.4s ease-in-out infinite}
+      .skeleton.line{height:12px;margin:0 0 12px;width:70%}.skeleton.eyebrow-line{width:140px;height:10px}.skeleton.title-line{width:55%;height:22px}.skeleton.short-line{width:30%}.skeleton.heading-line{width:120px;height:14px;margin-top:22px}
+      .skeleton-row{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 14px}.skeleton.pill{width:72px;height:28px;border-radius:20px}.skeleton.button-shape{width:170px;height:40px}
+      .skeleton-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.skeleton.box{height:96px;border-radius:10px}.skeleton.small-box{height:64px}.skeleton.field-shape{height:38px;margin:0 0 16px}
+      button[aria-busy=true]{display:inline-flex;align-items:center;white-space:nowrap}.spinner{display:inline-block;flex:none;width:14px;height:14px;margin-right:8px;vertical-align:-2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:rbx-spin .8s linear infinite}
+      @keyframes rbx-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}@keyframes rbx-spin{to{transform:rotate(360deg)}}
+      @media (prefers-reduced-motion:reduce){.skeleton{animation:none}.spinner{animation:none;border-right-color:currentColor;opacity:.6}}
       .backdrop{position:fixed;inset:0;background:#0008;display:grid;place-items:center;padding:20px;z-index:10}.dialog{width:min(760px,100%);max-height:90vh;overflow:auto;background:var(--card-background-color,#fff);border-radius:16px;padding:24px;box-shadow:0 16px 48px #0004}.dialog-head{margin-bottom:12px}.icon-button{font-size:24px;padding:2px 8px;background:transparent;color:var(--primary-text-color)}.description{margin:0 0 18px;line-height:1.5;white-space:pre-wrap}
       .menu{display:grid;gap:8px}.menu-option{display:flex;justify-content:space-between;align-items:center;text-align:left;background:var(--secondary-background-color,#f1f3f4);color:var(--primary-text-color)}.menu-option span{font-size:22px;color:var(--secondary-text-color)}
       form{display:grid;gap:14px}.field{display:grid;gap:7px}.field[hidden]{display:none}.field-label{font-weight:500}.field small{color:var(--secondary-text-color);line-height:1.4}.field-error{color:var(--error-color,#db4437);font-size:13px}fieldset{border:1px solid var(--border);border-radius:10px;padding:14px;display:grid;gap:14px}legend{font-weight:600;padding:0 7px}.order-buttons{display:flex;gap:8px;margin-top:8px}

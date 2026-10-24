@@ -370,3 +370,63 @@ test("stop action selector uses its localized supported action label", () => {
   );
   assert.match(control, />Stop active irrigation<\/option>/);
 });
+
+test("dashboard shows a skeleton while it first loads", () => {
+  const panel = new Panel();
+  panel.shadowRoot = { innerHTML: "" };
+  panel._renderLoading();
+  const html = panel.shadowRoot.innerHTML;
+  assert.match(html, /<main aria-busy="true">/);
+  assert.match(html, /role="status">Loading Rain Bird Extended…/);
+  assert.match(html, /class="controller skeleton-card"/);
+  assert.match(html, /prefers-reduced-motion:reduce/);
+  assert.match(html, /data-action="refresh">Refresh/);
+});
+
+test("refresh button shows a spinner while refreshing", () => {
+  const panel = new Panel();
+  const button = { outerHTML: "" };
+  panel.shadowRoot = { querySelector: () => button };
+  // First load: the skeleton shows loading, so the button just waits.
+  panel._setRefreshing(true);
+  assert.equal(button.outerHTML, '<button class="secondary" data-action="refresh" disabled>Refresh</button>');
+  panel._data = { controllers: [] };
+  panel._setRefreshing(true);
+  assert.match(button.outerHTML, /disabled aria-busy="true"/);
+  assert.match(button.outerHTML, /class="spinner"/);
+  assert.match(button.outerHTML, /Refreshing…/);
+  panel._setRefreshing(false);
+  assert.equal(button.outerHTML, '<button class="secondary" data-action="refresh">Refresh</button>');
+});
+
+test("settings dialog shows a skeleton while opening and a spinner while saving", () => {
+  const panel = new Panel();
+  panel._hass = { localize: () => "" };
+  panel._flow = { entryId: "entry", loading: true };
+  const opening = panel._flowDialog();
+  assert.match(opening, /aria-busy="true"/);
+  assert.match(opening, /Opening configuration…/);
+  assert.match(opening, /class="skeleton field-shape"/);
+
+  panel._flow = {
+    entryId: "entry",
+    loading: true,
+    step: { type: "form", step_id: "settings", data_schema: [] },
+  };
+  const saving = panel._flowDialog();
+  assert.match(saving, /class="spinner"/);
+  assert.match(saving, /Saving…/);
+  assert.match(saving, /data-action="close-flow" disabled/);
+
+  panel._flow.loading = false;
+  const ready = panel._flowDialog();
+  assert.match(ready, /data-action="submit-flow">Save</);
+  assert.doesNotMatch(ready, /class="spinner"/);
+
+  panel._flow = {
+    entryId: "entry",
+    loading: true,
+    step: { type: "menu", step_id: "init", menu_options: ["settings"] },
+  };
+  assert.match(panel._flowDialog(), /data-next-step="settings" disabled/);
+});
