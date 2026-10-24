@@ -341,3 +341,58 @@ async def test_run_program_from_options(
     await _poll_core(hass, freezer)
     assert _remaining(hass, 2) == dt_util.as_utc(_local(14, 12, 30))
     await _unload(hass, rainbird_entry, extended_entry)
+
+
+@pytest.mark.parametrize(
+    "extended_options",
+    [
+        {
+            "disable_rainbird_switches": False,
+            "program_a": {**PROGRAM_A, "start_date": "2026-10-01"},
+            "controller_power_entity": "switch.irrigation_controller",
+        }
+    ],
+)
+async def test_controller_turned_off(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_rainbird: MagicMock,
+    rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
+) -> None:
+    """While the Controller power entity is off, nothing is scheduled."""
+    freezer.move_to(_local(12, 0))
+    hass.states.async_set("switch.irrigation_controller", "on")
+    await _setup(hass, rainbird_entry, extended_entry)
+    tomorrow = _local(7, 0) + timedelta(days=1)  # every other day from Oct 1
+    assert _next(hass, 1) == dt_util.as_utc(tomorrow)
+    week = (_local(0, 0) - timedelta(days=2), _local(0, 0) + timedelta(days=6))
+    assert len(await _events(hass, *week)) == 4
+
+    hass.states.async_set("switch.irrigation_controller", "off")
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.rain_bird_sprinkler_1_estimated_next_run")
+    assert state.state == "unknown"
+    assert state.attributes["controller_off"] is True
+    # Zones in no program aren't estimated either.
+    assert (
+        hass.states.get("sensor.rain_bird_sprinkler_3_estimated_next_run").state
+        == "unknown"
+    )
+    # Runs before it was turned off stay; none from then on.
+    events = await _events(hass, *week)
+    assert [dt_util.parse_datetime(e["start"]) for e in events] == [
+        _local(7, 0) - timedelta(days=1)
+    ]
+    assert hass.states.get(SCHEDULE).attributes.get("message") is None
+
+    # Unknown or unavailable never hides the schedule.
+    hass.states.async_set("switch.irrigation_controller", "unavailable")
+    await hass.async_block_till_done()
+    assert _next(hass, 1) == dt_util.as_utc(tomorrow)
+
+    hass.states.async_set("switch.irrigation_controller", "on")
+    await hass.async_block_till_done()
+    assert _next(hass, 1) == dt_util.as_utc(tomorrow)
+    assert len(await _events(hass, *week)) == 4
+    await _unload(hass, rainbird_entry, extended_entry)

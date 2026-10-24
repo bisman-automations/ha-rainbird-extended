@@ -7,9 +7,29 @@ class RainbirdExtendedPanel extends HTMLElement {
     if (!this._loaded) {
       this._loaded = true;
       this._load();
+    } else if (this._powerStatesChanged()) {
+      // Turning the controller off or on changes the programs' next runs.
+      this._refresh().catch(() => this._updateControllerStatuses());
     } else {
       this._updateControllerStatuses();
     }
+  }
+
+  // Whether any controller's power entity changed state since the last render.
+  _powerStatesChanged() {
+    const states = this._hass?.states || {};
+    const current = (this._data?.controllers || [])
+      .map((controller) => (controller.power_entity ? states[controller.power_entity]?.state : ""))
+      .join("|");
+    const changed = this._powerStates !== undefined && current !== this._powerStates;
+    this._powerStates = current;
+    return changed;
+  }
+
+  // Whether a controller is turned off, from its Controller power entity.
+  _turnedOff(controller) {
+    if (!controller.power_entity) return false;
+    return this._hass?.states?.[controller.power_entity]?.state === "off";
   }
 
   async _load() {
@@ -33,6 +53,7 @@ class RainbirdExtendedPanel extends HTMLElement {
     this._data = await this._hass.callWS({
       type: `${DOMAIN}/panel/config`,
     });
+    this._powerStatesChanged();
     this._render();
   }
 
@@ -145,7 +166,7 @@ class RainbirdExtendedPanel extends HTMLElement {
       ${this._weatherAndRainDelay(controller)}
       ${
         controller.programs?.length
-          ? `<div class="program-section"><h3>Programs</h3><div class="programs">${controller.programs.map((program) => this._programCard(program)).join("")}</div></div>`
+          ? `<div class="program-section"><h3>Programs</h3><div class="programs">${controller.programs.map((program) => this._programCard(program, this._turnedOff(controller))).join("")}</div></div>`
           : ""
       }
       ${
@@ -238,7 +259,9 @@ class RainbirdExtendedPanel extends HTMLElement {
       ? "Unknown"
       : irrigationActive
         ? "Irrigating"
-        : "Idle";
+        : this._turnedOff(controller)
+          ? "Turned off"
+          : "Idle";
     return {
       availability: available ? "Online" : "Unavailable",
       availabilityClass: available ? "connected" : "disconnected",
@@ -247,7 +270,9 @@ class RainbirdExtendedPanel extends HTMLElement {
         ? "irrigating"
         : irrigation === "Idle"
           ? "idle"
-          : "unknown",
+          : irrigation === "Turned off"
+            ? "turned-off"
+            : "unknown",
     };
   }
 
@@ -269,13 +294,15 @@ class RainbirdExtendedPanel extends HTMLElement {
     });
   }
 
-  _programCard(program) {
+  _programCard(program, turnedOff = false) {
     const label = program.name
       ? `Program ${program.letter} · ${program.name}`
       : `Program ${program.letter}`;
-    const status = program.configured
-      ? `<span class="program-state configured">Configured</span><span class="program-next">Next run: ${this._formatProgramDate(program.next_run)}</span>`
-      : `<span class="program-state">Not configured</span>`;
+    const status = !program.configured
+      ? `<span class="program-state">Not configured</span>`
+      : turnedOff
+        ? `<span class="program-state turned-off">Turned off</span><span class="program-next">Won't run until the controller is turned back on</span>`
+        : `<span class="program-state configured">Configured</span><span class="program-next">Next run: ${this._formatProgramDate(program.next_run)}</span>`;
     return `<article class="program">
       <h4>${this._escape(label)}</h4>
       <div class="program-details">${status}</div>
@@ -763,11 +790,11 @@ class RainbirdExtendedPanel extends HTMLElement {
       header{margin-bottom:24px}h1{font-size:28px;margin:0 0 6px}h2{font-size:20px;margin:0 0 4px}h3{font-size:16px;margin:22px 0 12px}h4{margin:0 0 12px}p{color:var(--secondary-text-color);margin:0}
       .controller-list{display:grid;gap:18px}.controller,.empty{background:var(--card-background-color,#fff);border:1px solid var(--border);border-radius:14px;padding:22px;box-shadow:var(--ha-card-box-shadow,0 1px 3px #0001)}
       .controller-head{align-items:flex-start}.eyebrow{font-size:11px;letter-spacing:.08em;font-weight:600;color:var(--secondary-text-color);margin-bottom:7px}
-      .status-group{display:flex;flex-wrap:wrap;gap:8px}.status{border-radius:20px;padding:6px 11px;font-size:12px;font-weight:600;white-space:nowrap}.connected,.idle{background:var(--success-color,#2e7d32);color:var(--text-primary-color,#fff)}.disconnected,.irrigating{background:var(--warning-color,#ed6c02);color:var(--text-primary-color,#fff)}.unknown{background:var(--secondary-background-color,#f1f3f4);color:var(--secondary-text-color)}
+      .status-group{display:flex;flex-wrap:wrap;gap:8px}.status{border-radius:20px;padding:6px 11px;font-size:12px;font-weight:600;white-space:nowrap}.connected,.idle{background:var(--success-color,#2e7d32);color:var(--text-primary-color,#fff)}.disconnected,.irrigating{background:var(--warning-color,#ed6c02);color:var(--text-primary-color,#fff)}.unknown{background:var(--secondary-background-color,#f1f3f4);color:var(--secondary-text-color)}.turned-off{background:var(--disabled-text-color,#757575);color:var(--text-primary-color,#fff)}
       .controller-actions{justify-content:flex-start;margin-top:17px;flex-wrap:wrap}.muted{font-size:13px;color:var(--secondary-text-color)}.stop-note{font-size:12px;margin-top:8px}
       .danger{background:var(--error-color,#db4437);color:var(--text-primary-color,#fff);font-weight:600}
       .weather-section{margin-top:22px}.weather-layout{display:grid;grid-template-columns:minmax(0,3fr) minmax(230px,1fr);gap:16px}.forecast-panel,.rain-delay-panel{border:1px solid var(--border);border-radius:10px;padding:16px}.weather-section h3{margin:0 0 12px}.forecast-days{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}.forecast-day{border:1px solid var(--border);border-radius:8px;padding:10px}.forecast-day h4{margin:0 0 6px}.forecast-day p{font-size:12px;margin-top:4px}.forecast-condition{text-transform:capitalize}.rain-delay-panel .number-row{margin:8px 0 12px}.rain-delay-panel .muted{line-height:1.5}
-      .program-section{margin-top:22px}.program-section h3{margin:0 0 12px}.programs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.program{border:1px solid var(--border);border-radius:10px;padding:13px 14px}.program h4{margin:0 0 9px}.program-details{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.program-state{display:inline-flex;border-radius:16px;padding:4px 9px;font-size:12px;font-weight:600;background:var(--secondary-background-color,#f1f3f4);color:var(--secondary-text-color)}.program-state.configured{background:var(--success-color,#2e7d32);color:var(--text-primary-color,#fff)}.program-next{font-size:13px;color:var(--secondary-text-color)}
+      .program-section{margin-top:22px}.program-section h3{margin:0 0 12px}.programs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.program{border:1px solid var(--border);border-radius:10px;padding:13px 14px}.program h4{margin:0 0 9px}.program-details{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.program-state{display:inline-flex;border-radius:16px;padding:4px 9px;font-size:12px;font-weight:600;background:var(--secondary-background-color,#f1f3f4);color:var(--secondary-text-color)}.program-state.configured{background:var(--success-color,#2e7d32);color:var(--text-primary-color,#fff)}.program-state.turned-off{background:var(--disabled-text-color,#757575);color:var(--text-primary-color,#fff)}.program-next{font-size:13px;color:var(--secondary-text-color)}
       button{font:inherit;border:0;border-radius:8px;padding:10px 16px;cursor:pointer}button:disabled{opacity:.55;cursor:wait}.primary{background:var(--blue);color:var(--text-primary-color,#fff);font-weight:600}.secondary{background:var(--secondary-background-color,#f1f3f4);color:var(--primary-text-color)}.compact{padding:6px 10px;font-size:12px}
       .zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.zone{border:1px solid var(--border);border-radius:10px;padding:14px}.number-row{display:grid;gap:6px;margin:12px 0;font-size:13px}.number-input,.number-control{display:flex;align-items:center;gap:7px}.number-input input,.number-control input{min-width:0;flex:1}.number-input small,.number-control small,.number-control output{color:var(--secondary-text-color)}input,select{font:inherit;color:var(--primary-text-color);background:var(--input-fill-color,var(--card-background-color,#fff));border:1px solid var(--border);border-radius:7px;padding:9px;min-width:0;width:100%}input[type=range],input[type=checkbox]{width:auto}
       .empty{text-align:center;padding:48px 22px}.empty h2{margin-bottom:8px}

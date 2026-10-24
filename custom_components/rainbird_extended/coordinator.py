@@ -27,10 +27,20 @@ from pyrainbird.timeline import (
 )
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.const import STATE_OFF
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    callback,
+)
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.debounce import Debouncer
-from homeassistant.helpers.event import async_track_point_in_utc_time
+from homeassistant.helpers.event import (
+    async_track_point_in_utc_time,
+    async_track_state_change_event,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -40,6 +50,7 @@ from .const import (
     CONF_BLOWOUT_REST_SECONDS,
     CONF_BLOWOUT_ZONES,
     CONF_CYCLE_MINUTES,
+    CONF_POWER_ENTITY,
     CONF_RUN_ALL_ZONES,
     CONF_SOAK_MINUTES,
     CONFIRM_DELAY,
@@ -177,6 +188,8 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self.programs: list[ConfiguredProgram] = parse_programs(
             dict(config_entry.options), self.max_programs
         )
+        # On/off entity that says whether the controller is turned on.
+        self.power_entity: str | None = config_entry.options.get(CONF_POWER_ENTITY)
         # Rain Bird controllers handle one request at a time. Share the core
         # integration's lock when it has one so we never poll concurrently.
         self._device_lock: asyncio.Lock = (
@@ -310,7 +323,37 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                     self.schedule.async_request_refresh(),
                     f"{DOMAIN} schedule",
                 )
+        if self.power_entity:
+            # Turning the controller off or on changes what's scheduled.
+            self.config_entry.async_on_unload(
+                async_track_state_change_event(
+                    self.hass, self.power_entity, self._handle_power_change
+                )
+            )
         self.config_entry.async_on_unload(self._cancel_sequence)
+
+    @callback
+    def _handle_power_change(self, _event: Event[EventStateChangedData]) -> None:
+        self.async_update_listeners()
+
+    @property
+    def turned_off_since(self) -> datetime | None:
+        """When the controller was turned off, or None while it's on.
+
+        Only an explicit "off" from the power entity counts; unknown or
+        unavailable doesn't, so a missing entity never hides the schedule.
+        """
+        if not self.power_entity:
+            return None
+        state = self.hass.states.get(self.power_entity)
+        if state is None or state.state != STATE_OFF:
+            return None
+        return state.last_changed
+
+    @property
+    def turned_off(self) -> bool:
+        """Whether the controller is turned off."""
+        return self.turned_off_since is not None
 
     @callback
     def _handle_rainbird_update(self) -> None:
@@ -681,7 +724,9 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         return ProgramTimeline(MergedIterable(iters)) if iters else None
 
     def next_run(self, zone: int) -> datetime | None:
-        """When the schedule next runs this zone."""
+        """When the schedule next runs this zone (None while turned off)."""
+        if self.turned_off:
+            return None
         now = dt_util.now()
         if (timeline := self._zone_timeline(zone, now)) is None:
             return None

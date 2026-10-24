@@ -22,6 +22,7 @@ from homeassistant.util import dt as dt_util
 
 from .config_flow import MAX_PROGRAMS
 from .const import (
+    CONF_POWER_ENTITY,
     CONF_RAINBIRD_ENTRY_ID,
     CONF_STOP_ACTION,
     CONF_WEATHER_ENTITY,
@@ -214,9 +215,15 @@ def _program_summaries(
     }
     summaries = []
     delay_days = getattr(coordinator, "rain_delay_days", 0) if coordinator else 0
+    # A controller that's turned off doesn't run its programs.
+    turned_off = bool(getattr(coordinator, "turned_off", False))
     for index in range(count):
         program = configured.get(index)
-        next_run = _next_program_run(program, now, delay_days) if program else None
+        next_run = (
+            _next_program_run(program, now, delay_days)
+            if program and not turned_off
+            else None
+        )
         summaries.append(
             {
                 "program": index,
@@ -396,6 +403,8 @@ def _panel_config(hass: HomeAssistant) -> dict[str, list[dict[str, Any]]]:
                     dt_util.now(),
                 ),
                 "stop_button": stop_button,
+                # On/off entity that says whether the controller is turned on.
+                "power_entity": entry.options.get(CONF_POWER_ENTITY),
                 "zones": zones,
             }
         )

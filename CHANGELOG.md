@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-10-23
+
+### Added
+
+- **Controller power** setting: pick an on/off entity that's off while the
+  controller is turned off (such as a Controller switch from another
+  integration). While it's off, the Schedule calendar shows no watering from
+  when it was turned off, each zone's Estimated next run is unknown (new
+  `controller_off` attribute), and the sidebar dashboard shows **Turned off**,
+  with program cards saying they won't run until it's turned back on. Unknown
+  or unavailable doesn't count as off.
+
 ## [1.9.1] - 2026-10-17
 
 ### Changed
@@ -271,6 +283,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[1.10.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.7.0...v1.8.0

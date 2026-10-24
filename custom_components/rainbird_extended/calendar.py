@@ -193,8 +193,13 @@ class RainbirdProgramSchedule(RainbirdExtendedControllerEntity, CalendarEntity):
         if (timeline := self.coordinator.program_timeline(now)) is None:
             return []
         programs = {p.program: p for p in self.coordinator.programs}
+        # While the controller is turned off it won't water: leave out every
+        # run from when it was turned off.
+        off_since = self.coordinator.turned_off_since
         events = []
         for run in timeline.overlapping(start, end):
+            if off_since is not None and run.end > off_since:
+                continue
             program = programs[run.program_id.program]
             zones = ", ".join(_zone_name(self.coordinator, z) for z in program.zones)
             events.append(

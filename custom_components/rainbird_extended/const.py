@@ -45,6 +45,12 @@ CONTROLLER_STATE_IDLE_REFRESH = timedelta(minutes=30)
 EARLY_STOP_MARGIN = timedelta(seconds=60)
 
 # Option: disable the core Rain Bird zone switches the valves replace.
+# Option: an on/off entity that says whether the controller is turned on
+# (for example a "Controller" switch from another integration). While it's off,
+# nothing is shown as scheduled.
+CONF_POWER_ENTITY = "controller_power_entity"
+POWER_ENTITY_DOMAINS = ("switch", "input_boolean", "binary_sensor")
+
 CONF_DISABLE_RAINBIRD_SWITCHES = "disable_rainbird_switches"
 DEFAULT_DISABLE_RAINBIRD_SWITCHES = True
 

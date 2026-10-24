@@ -47,7 +47,7 @@ editor, and edit each zone's valve runtime, run interval, and flow rate there.
 | Valve | `valve.rain_bird_sprinkler_1` | Water valve. Open runs the zone for its valve runtime; close stops irrigation. |
 | Valve runtime | `number.rain_bird_sprinkler_1_valve_runtime` | How long the zone runs when opened, in seconds (1 min steps, 1 min – 24 h). Remembered across restarts. |
 | Time remaining | `sensor.rain_bird_sprinkler_1_time_remaining` | When the current run ends (timestamp — the UI shows a countdown like "in 4 minutes"); while idle, when the last run ended. Attribute `estimated`. See [How time remaining is worked out](#how-time-remaining-is-worked-out). |
-| Estimated next run | `sensor.rain_bird_sprinkler_1_estimated_next_run` | When the zone next runs: from the controller's schedule when it can be read, otherwise the last run's start plus **Run every**. Attributes `estimated`, `last_start`. (Installed before 1.5.0, it keeps its `…_next_run` id.) |
+| Estimated next run | `sensor.rain_bird_sprinkler_1_estimated_next_run` | When the zone next runs: from the controller's schedule when it can be read, otherwise the last run's start plus **Run every**. Attributes `estimated`, `last_start`, `controller_off`. Unknown while the controller is [turned off](#controller-power). (Installed before 1.5.0, it keeps its `…_next_run` id.) |
 | Run every | `number.rain_bird_sprinkler_1_run_every` | How many days apart the zone runs (1–30, default 1), for the estimated next run. |
 | Last run | `sensor.rain_bird_sprinkler_1_last_run` | When the zone last started, however it was started. Attributes `end`, `duration` (seconds) and `source`. Remembered across restarts. |
 | Run | `event.rain_bird_sprinkler_1_run` | Fires `started` and `finished` for every run, with `source` (`home_assistant`, `run_all_zones`, `blowout`, `program`, `schedule` or `other`), `start`, and on finish `end` and `duration`. See [Run events](#run-events). |
@@ -229,6 +229,22 @@ sprinklers, Weather (the forecast entity and the daily check time shared by
 rain, freeze and soil moisture skip and weather adjustment), Rain skip, Freeze
 skip, Soil moisture skip and Weather adjustment. Temperatures are in your Home
 Assistant unit system.
+
+### Controller power
+
+Rain Bird controllers can be turned off, for example for the winter, and still
+keep their programs. If another integration has an on/off entity for that,
+such as a **Controller** switch, pick it as **Controller power** in the
+settings. While it's off:
+
+- the **Schedule** calendar shows no watering from when it was turned off
+  (earlier runs stay);
+- each zone's **Estimated next run** is unknown, with `controller_off: true`;
+- the sidebar dashboard shows **Turned off** instead of Idle, and its program
+  cards say they won't run until the controller is turned back on.
+
+Only an explicit off counts: if the entity is unknown or unavailable, the
+schedule is shown as usual.
 
 ### Rain skip
 

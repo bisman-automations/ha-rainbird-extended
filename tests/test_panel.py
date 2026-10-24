@@ -316,3 +316,22 @@ async def test_set_rain_delay_can_wait_for_controller_refresh() -> None:
 
     coordinator._async_command.assert_awaited_once_with(controller.set_rain_delay, 4)
     refresh.assert_awaited_once()
+
+
+def test_program_summaries_hide_next_run_while_turned_off() -> None:
+    """A controller that's turned off has no next run for its programs."""
+    programs = _program_summaries(
+        {
+            "program_a": {
+                "frequency": "custom",
+                "days": ["mon"],
+                "start_time_1": "05:00:00",
+                "zones": [1],
+            }
+        },
+        1,
+        SimpleNamespace(rain_delay_days=0, turned_off=True),
+        datetime(2026, 10, 11, 6, tzinfo=UTC),
+    )
+    assert programs[0]["configured"] is True
+    assert programs[0]["next_run"] is None

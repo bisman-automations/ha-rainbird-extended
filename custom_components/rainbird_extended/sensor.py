@@ -115,7 +115,8 @@ class RainbirdZoneNextRun(RainbirdExtendedZoneEntity, RestoreEntity, SensorEntit
     From the controller's schedule when it can be read. Otherwise estimated:
     the last run's start plus the zone's Run every interval, moved on by whole
     intervals if that's already passed (a skipped day). Before any run, the
-    estimate counts from when it was first needed.
+    estimate counts from when it was first needed. Unknown while the
+    controller is turned off (see the Controller power option).
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -138,6 +139,9 @@ class RainbirdZoneNextRun(RainbirdExtendedZoneEntity, RestoreEntity, SensorEntit
     @property
     def native_value(self) -> datetime | None:
         """Return when the zone next runs."""
+        if self.coordinator.turned_off:
+            # It won't run until the controller is turned back on.
+            return None
         if (scheduled := self.coordinator.next_run(self._zone)) is not None:
             self._estimated = False
             return scheduled
@@ -161,6 +165,7 @@ class RainbirdZoneNextRun(RainbirdExtendedZoneEntity, RestoreEntity, SensorEntit
         return {
             "estimated": self._estimated,
             ATTR_LAST_START: self._last_start.isoformat() if self._last_start else None,
+            "controller_off": self.coordinator.turned_off,
         }
 
 

@@ -284,6 +284,49 @@ test("dashboard controller status follows Rain Bird entities", () => {
   assert.equal(badges[1].textContent, "Unknown");
 });
 
+test("dashboard shows a controller that's turned off", () => {
+  const panel = new Panel();
+  panel._hass = {
+    states: {
+      "sensor.rain_bird_controller_raindelay": { state: "0" },
+      "binary_sensor.rain_bird_controller_irrigating": { state: "off" },
+      "switch.irrigation_controller": { state: "off" },
+    },
+  };
+  const controller = {
+    entry_id: "entry",
+    rainbird_loaded: true,
+    rainbird_status_entities: ["sensor.rain_bird_controller_raindelay"],
+    irrigating_entity: "binary_sensor.rain_bird_controller_irrigating",
+    power_entity: "switch.irrigation_controller",
+  };
+  const status = panel._controllerStatus(controller);
+  assert.equal(status.availability, "Online");
+  assert.equal(status.irrigation, "Turned off");
+  assert.equal(status.irrigationClass, "turned-off");
+  const card = panel._programCard(
+    { letter: "A", configured: true, next_run: null },
+    panel._turnedOff(controller),
+  );
+  assert.match(card, /Turned off/);
+  assert.match(card, /turned back on/);
+  assert.doesNotMatch(card, /Next run/);
+
+  // Watering still shows as watering, and unavailable isn't "off".
+  panel._hass.states["binary_sensor.rain_bird_controller_irrigating"].state = "on";
+  assert.equal(panel._controllerStatus(controller).irrigation, "Irrigating");
+  panel._hass.states["binary_sensor.rain_bird_controller_irrigating"].state = "off";
+  panel._hass.states["switch.irrigation_controller"].state = "unavailable";
+  assert.equal(panel._controllerStatus(controller).irrigation, "Idle");
+
+  // Turning it back on reloads the programs' next runs.
+  panel._data = { controllers: [controller] };
+  panel._powerStatesChanged();
+  assert.equal(panel._powerStatesChanged(), false);
+  panel._hass.states["switch.irrigation_controller"].state = "on";
+  assert.equal(panel._powerStatesChanged(), true);
+});
+
 test("winter stop confirmation makes clear that scheduled programs remain enabled", () => {
   const panel = new Panel();
   const dialog = panel._stopConfirmation();

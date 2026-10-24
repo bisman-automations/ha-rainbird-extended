@@ -47,6 +47,7 @@ from .const import (
     CONF_MOISTURE_DELAY_DAYS,
     CONF_MOISTURE_SENSOR,
     CONF_MOISTURE_THRESHOLD,
+    CONF_POWER_ENTITY,
     CONF_RAIN_CHANCE,
     CONF_RAIN_CHECK_TIME,
     CONF_RAIN_DELAY_DAYS,
@@ -71,6 +72,7 @@ from .const import (
     DEFAULT_SOAK_MINUTES,
     DEFAULT_STOP_ACTION,
     DOMAIN,
+    POWER_ENTITY_DOMAINS,
     RAINBIRD_DOMAIN,
     SECTION_BLOWOUT,
     SECTION_FREEZE_SKIP,
@@ -475,6 +477,9 @@ def options_schema(valves: list[str], unit: str) -> vol.Schema:
                 CONF_DISABLE_RAINBIRD_SWITCHES,
                 default=DEFAULT_DISABLE_RAINBIRD_SWITCHES,
             ): bool,
+            vol.Optional(CONF_POWER_ENTITY): EntitySelector(
+                EntitySelectorConfig(domain=list(POWER_ENTITY_DOMAINS))
+            ),
             **{
                 vol.Required(name): section(
                     vol.Schema(fields), {"collapsed": name != SECTION_WEATHER}
