@@ -61,7 +61,12 @@ connection and coordinators; it never opens its own connection.
 ## Home Assistant compatibility
 
 - **Supported range:** oldest supported is **2026.9**, set in `hacs.json`,
-  and CI tests that and the current release. When raising the minimum,
+  and CI tests that and the current release. A non-blocking **next HA** job
+  also tests the newest `pytest-homeassistant-custom-component` build. That
+  build follows HA betas, so the job tests the upcoming release while a beta
+  is out. CI also runs weekly on Thursdays, after the Wednesday beta releases.
+  If **next HA** fails, look into it before that HA version is released.
+  When raising the minimum,
   change `hacs.json`, the `HA 2026.9` CI matrix pins
   (`pytest-homeassistant-custom-component` and `pyrainbird`), and the README.
 - **HA 2026.9+ keeps devices per config entry:**
@@ -73,6 +78,10 @@ connection and coordinators; it never opens its own connection.
   means no deprecated core API was hit on the tested paths. Look for
   `breaks_in_ha_version` in a new HA release (or the `dev` branch of
   `home-assistant/core`) when checking upcoming versions.
+- **Keep returning `True`/`False`** from `async_setup_entry` and
+  `async_unload_entry`. HA 2026.11 moves core integrations to returning
+  `None` and raising instead. Custom integrations may still return booleans
+  there, but 2026.10 and earlier treat `None` as a failed setup.
 - **Core Rain Bird internals:** `entry.runtime_data.coordinator`,
   `.schedule_coordinator`, `.controller`, `.model_info` and the core
   coordinator's `_device_lock` aren't public API. Diff
