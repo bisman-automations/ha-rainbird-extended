@@ -5,14 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
 ## [1.10.3] - 2026-10-26
 
 ### Changed
 
 - The README follows the same layout as the other bisman-automations integrations: a button that opens it in HACS, a button that starts setup, and troubleshooting steps for debug logs and diagnostics.
 - Each release now includes `rainbird_extended.zip` for installing without HACS.
+- The changelog no longer keeps an Unreleased section, and the agent notes follow the updated shared release rules.
 
 ## [1.10.2] - 2026-10-24
 
@@ -317,7 +316,6 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
-[Unreleased]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.3...HEAD
 [1.10.3]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.2...v1.10.3
 [1.10.2]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.1...v1.10.2
 [1.10.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.0...v1.10.1
