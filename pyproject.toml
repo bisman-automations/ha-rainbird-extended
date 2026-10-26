@@ -1,15 +1,23 @@
+# Tool settings only: this repo isn't a Python package, and the version lives
+# in custom_components/rainbird_extended/manifest.json. The pytest, ruff and coverage
+# settings follow bisman-automations/.github templates/repo/pyproject.toml;
+# anything repo-specific is marked.
+
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py313"
+# The oldest Python the minimum Home Assistant in hacs.json runs on.
+target-version = "py314"
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "SIM", "PL", "RUF"]
-ignore = ["PLR2004", "PLR0913", "E501"]
+select = ["B", "E", "F", "I", "UP", "W"]
+# Repo-specific rules on top of the shared set.
+extend-select = ["PL", "RUF", "SIM"]
+ignore = ["E501", "PLR0913", "PLR2004"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests take their fixtures as arguments.
@@ -17,9 +25,18 @@ ignore = ["PLR2004", "PLR0913", "E501"]
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
-known-first-party = ["homeassistant", "custom_components", "tests"]
+known-first-party = ["custom_components", "homeassistant", "tests"]
 combine-as-imports = true
 split-on-trailing-comma = false
+
+[tool.coverage.run]
+source = ["custom_components/rainbird_extended"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 90
 
 [tool.mypy]
 python_version = "3.14"
@@ -34,12 +51,3 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["voluptuous", "voluptuous.*"]
 follow_imports = "skip"
-
-[tool.coverage.run]
-source = ["custom_components.rainbird_extended"]
-branch = true
-
-[tool.coverage.report]
-show_missing = true
-skip_covered = true
-fail_under = 90

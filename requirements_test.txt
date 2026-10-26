@@ -1,9 +1,9 @@
-# Pinned so CI only changes when Dependabot proposes an update.
-# pytest-homeassistant-custom-component pins Home Assistant itself.
-pytest-homeassistant-custom-component==0.13.373
-# Match the version Home Assistant's Rain Bird integration requires (2026.10).
-# CI also runs the oldest supported Home Assistant; see ci.yml.
-pyrainbird==6.6.0
-ruff==0.17.1
+# Test requirements for the newest Home Assistant (CI "newest" and lint jobs).
+# pytest-homeassistant-custom-component pins Home Assistant itself and is left
+# unpinned on purpose, so CI always tests the newest release.
+pytest-homeassistant-custom-component
+# Lint, pinned so it only changes when Dependabot proposes an update.
+ruff==0.17.2
+# Test-only libraries (the integration's runtime requirements are in
+# manifest.json) go below.
 mypy==2.4.0
-pytest-cov==7.1.0

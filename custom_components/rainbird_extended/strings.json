@@ -1,0 +1,568 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Every Rain Bird controller is already extended.",
+      "no_rainbird": "Set up the Rain Bird integration first, then add Rain Bird Extended."
+    },
+    "step": {
+      "user": {
+        "title": "Rain Bird Extended",
+        "description": "Choose the Rain Bird controller to add valves, valve runtimes and time remaining to.",
+        "data": {
+          "rainbird_entry_id": "Rain Bird controller"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Rain Bird Extended",
+        "menu_options": {
+          "settings": "Settings",
+          "program_a": "Program A",
+          "program_b": "Program B",
+          "program_c": "Program C",
+          "program_d": "Program D"
+        }
+      },
+      "settings": {
+        "title": "Settings",
+        "data": {
+          "stop_action": "Stop irrigation button",
+          "disable_rainbird_switches": "Disable the Rain Bird zone switches",
+          "controller_power_entity": "Controller power"
+        },
+        "data_description": {
+          "stop_action": "What the dashboard's Stop irrigation button does. Stop watering stops what's running now; programs still run at their next start time. Stop watering and turn the controller off also turns off the Controller power switch, so nothing runs until it's turned back on (for example for the winter).",
+          "disable_rainbird_switches": "Each zone's valve replaces its Rain Bird switch, so the switches are disabled to avoid having every zone twice (for example in HomeKit). Turn this off to keep both.",
+          "controller_power_entity": "Optional. An on/off entity that's off while the controller is turned off, such as a Controller switch from another integration. While it's off, the Schedule calendar shows no watering, each zone's Estimated next run is unknown, and the dashboard shows Turned off."
+        },
+        "sections": {
+          "run_all_zones_section": {
+            "name": "Run all zones and cycle and soak",
+            "data": {
+              "run_all_zones": "Run all zones: zones and order",
+              "cycle_minutes": "Cycle and soak: cycle length (minutes)",
+              "soak_minutes": "Cycle and soak: soak time (minutes)"
+            },
+            "data_description": {
+              "run_all_zones": "Pick the zones to run, then drag them into the order to run them. Leave empty to run every zone in zone order.",
+              "cycle_minutes": "Run all zones (and start_zone with cycle and soak) split each zone's run into cycles of at most this long, taking turns between zones. 0 turns cycle and soak off.",
+              "soak_minutes": "The least time each zone rests between its cycles."
+            }
+          },
+          "blowout_section": {
+            "name": "Blowout sprinklers",
+            "description": "For winterizing with an air compressor.",
+            "data": {
+              "blowout_zones": "Zones and order",
+              "blowout_cycles": "Bursts per zone",
+              "blowout_on_minutes": "Burst length (minutes)",
+              "blowout_rest_seconds": "Rest between bursts (seconds)"
+            },
+            "data_description": {
+              "blowout_zones": "Pick the zones to blow out, then drag them into order. Leave empty for every zone in zone order.",
+              "blowout_cycles": "How many times each zone is opened.",
+              "blowout_on_minutes": "How long each burst runs. Rain Bird runs zones in whole minutes.",
+              "blowout_rest_seconds": "Pause after every burst (also between zones) so the compressor can recover."
+            }
+          },
+          "weather_section": {
+            "name": "Weather",
+            "data": {
+              "weather_entity": "Weather forecast",
+              "rain_check_time": "Check the weather at"
+            },
+            "data_description": {
+              "weather_entity": "Pick a weather entity to add the Rain skip, Freeze skip and Weather adjustment switches.",
+              "rain_check_time": "Rain, freeze and soil moisture skip and weather adjustment all check at this time each day. Pick a time before your programs start."
+            }
+          },
+          "rain_skip_section": {
+            "name": "Rain skip",
+            "description": "Sets the controller's rain delay when today's forecast is wet enough.",
+            "data": {
+              "rain_chance": "Skip when the chance of rain is at least",
+              "rain_delay_days": "Rain delay to set (days)"
+            },
+            "data_description": {
+              "rain_chance": "Compared with today's precipitation probability. Forecasts without one count as wet when the condition is rainy.",
+              "rain_delay_days": "Only raised, never shortened, if a longer rain delay is already set."
+            }
+          },
+          "freeze_skip_section": {
+            "name": "Freeze skip",
+            "description": "Sets the controller's rain delay when today's forecast low is freezing, and with a temperature sensor also stops watering whenever it reads freezing. Blowouts are never stopped.",
+            "data": {
+              "freeze_temperature": "Freezing at or below",
+              "freeze_sensor": "Temperature sensor (optional)",
+              "freeze_delay_days": "Rain delay to set (days)"
+            },
+            "data_description": {
+              "freeze_temperature": "Compared with today's forecast low and the temperature sensor.",
+              "freeze_sensor": "An outdoor temperature sensor. With one, freeze skip works without a weather forecast too.",
+              "freeze_delay_days": "Only raised, never shortened, if a longer rain delay is already set."
+            }
+          },
+          "moisture_skip_section": {
+            "name": "Soil moisture skip",
+            "description": "Sets the controller's rain delay when a soil moisture sensor says the ground is already wet. Checked daily at the check time in Weather.",
+            "data": {
+              "moisture_sensor": "Soil moisture sensor",
+              "moisture_threshold": "Skip at or above",
+              "moisture_delay_days": "Rain delay to set (days)"
+            },
+            "data_description": {
+              "moisture_sensor": "Adds a Soil moisture skip switch.",
+              "moisture_delay_days": "Only raised, never shortened, if a longer rain delay is already set."
+            }
+          },
+          "weather_adjustment_section": {
+            "name": "Weather adjustment",
+            "description": "Sets every program's seasonal adjustment from today's forecast high: the low percent at or below the low temperature, the high percent at or above the high temperature, and in between in a straight line (rounded to 5%). Needs Home Assistant 2026.10 or newer. Its switch starts off.",
+            "data": {
+              "adjust_low_temperature": "Low temperature",
+              "adjust_low_percent": "Seasonal adjustment at the low temperature",
+              "adjust_high_temperature": "High temperature",
+              "adjust_high_percent": "Seasonal adjustment at the high temperature"
+            },
+            "data_description": {}
+          }
+        }
+      },
+      "program_a": {
+        "title": "Program {program}",
+        "description": "Enter Program {program} as it's set in the Rain Bird app, for controllers whose schedule can't be read (the ARC8, for one). It shows on the Schedule calendar and sets each zone's next run and time remaining. This doesn't change the controller, which runs the program itself. A program without zones or start times is off.",
+        "data": {
+          "name": "Name",
+          "frequency": "Frequency",
+          "days": "Days (Custom)",
+          "every_days": "Water every (Cyclic)",
+          "start_date": "Start date (Cyclic)",
+          "start_time_1": "Start time",
+          "start_time_2": "Second start time",
+          "start_time_3": "Third start time",
+          "start_time_4": "Fourth start time",
+          "zones": "Stations",
+          "station_delay": "Delay between stations (seconds)",
+          "seasonal_adjust": "Seasonal adjustment"
+        },
+        "data_description": {
+          "name": "Optional, for example Normal Watering.",
+          "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
+          "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
+          "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
+          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+        }
+      },
+      "program_b": {
+        "title": "Program {program}",
+        "description": "Enter Program {program} as it's set in the Rain Bird app, for controllers whose schedule can't be read (the ARC8, for one). It shows on the Schedule calendar and sets each zone's next run and time remaining. This doesn't change the controller, which runs the program itself. A program without zones or start times is off.",
+        "data": {
+          "name": "Name",
+          "frequency": "Frequency",
+          "days": "Days (Custom)",
+          "every_days": "Water every (Cyclic)",
+          "start_date": "Start date (Cyclic)",
+          "start_time_1": "Start time",
+          "start_time_2": "Second start time",
+          "start_time_3": "Third start time",
+          "start_time_4": "Fourth start time",
+          "zones": "Stations",
+          "station_delay": "Delay between stations (seconds)",
+          "seasonal_adjust": "Seasonal adjustment"
+        },
+        "data_description": {
+          "name": "Optional, for example Normal Watering.",
+          "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
+          "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
+          "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
+          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+        }
+      },
+      "program_c": {
+        "title": "Program {program}",
+        "description": "Enter Program {program} as it's set in the Rain Bird app, for controllers whose schedule can't be read (the ARC8, for one). It shows on the Schedule calendar and sets each zone's next run and time remaining. This doesn't change the controller, which runs the program itself. A program without zones or start times is off.",
+        "data": {
+          "name": "Name",
+          "frequency": "Frequency",
+          "days": "Days (Custom)",
+          "every_days": "Water every (Cyclic)",
+          "start_date": "Start date (Cyclic)",
+          "start_time_1": "Start time",
+          "start_time_2": "Second start time",
+          "start_time_3": "Third start time",
+          "start_time_4": "Fourth start time",
+          "zones": "Stations",
+          "station_delay": "Delay between stations (seconds)",
+          "seasonal_adjust": "Seasonal adjustment"
+        },
+        "data_description": {
+          "name": "Optional, for example Normal Watering.",
+          "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
+          "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
+          "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
+          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+        }
+      },
+      "program_d": {
+        "title": "Program {program}",
+        "description": "Enter Program {program} as it's set in the Rain Bird app, for controllers whose schedule can't be read (the ARC8, for one). It shows on the Schedule calendar and sets each zone's next run and time remaining. This doesn't change the controller, which runs the program itself. A program without zones or start times is off.",
+        "data": {
+          "name": "Name",
+          "frequency": "Frequency",
+          "days": "Days (Custom)",
+          "every_days": "Water every (Cyclic)",
+          "start_date": "Start date (Cyclic)",
+          "start_time_1": "Start time",
+          "start_time_2": "Second start time",
+          "start_time_3": "Third start time",
+          "start_time_4": "Fourth start time",
+          "zones": "Stations",
+          "station_delay": "Delay between stations (seconds)",
+          "seasonal_adjust": "Seasonal adjustment"
+        },
+        "data_description": {
+          "name": "Optional, for example Normal Watering.",
+          "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
+          "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
+          "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
+          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+        }
+      }
+    },
+    "error": {
+      "invalid_zones": "Pick only this controller's zones.",
+      "no_days": "Pick at least one day for a Custom program.",
+      "power_switch_required": "To turn the controller off, pick a switch or input boolean as Controller power."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "irrigating": {
+        "name": "Irrigating",
+        "state_attributes": {
+          "zones": {
+            "name": "Zones"
+          },
+          "end": {
+            "name": "End"
+          },
+          "run_all_zones": {
+            "name": "Run all zones"
+          },
+          "blowout": {
+            "name": "Blowout"
+          },
+          "paused": {
+            "name": "Paused",
+            "state": {
+              "run_all_zones": "Run all zones",
+              "blowout": "Blowout",
+              "home_assistant": "Cycle and soak"
+            }
+          }
+        }
+      }
+    },
+    "button": {
+      "run_all_zones": {
+        "name": "Run all zones"
+      },
+      "run_program": {
+        "name": "Run program {program}"
+      },
+      "stop_irrigation": {
+        "name": "Stop irrigation"
+      },
+      "blowout": {
+        "name": "Blowout sprinklers"
+      },
+      "pause": {
+        "name": "Pause"
+      },
+      "resume": {
+        "name": "Resume"
+      }
+    },
+    "event": {
+      "run": {
+        "name": "Run",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "started": "Started",
+              "finished": "Finished"
+            }
+          },
+          "source": {
+            "name": "Started by",
+            "state": {
+              "home_assistant": "Home Assistant",
+              "run_all_zones": "Run all zones",
+              "program": "Program",
+              "schedule": "Schedule",
+              "other": "Other",
+              "blowout": "Blowout"
+            }
+          }
+        }
+      }
+    },
+    "number": {
+      "flow_rate": {
+        "name": "Flow rate"
+      },
+      "seasonal_adjustment": {
+        "name": "Seasonal adjustment"
+      },
+      "seasonal_adjustment_program": {
+        "name": "Seasonal adjustment {program}"
+      },
+      "valve_runtime": {
+        "name": "Valve runtime"
+      },
+      "run_interval": {
+        "name": "Run every"
+      }
+    },
+    "sensor": {
+      "last_run": {
+        "name": "Last run",
+        "state_attributes": {
+          "duration": {
+            "name": "Duration"
+          },
+          "end": {
+            "name": "End"
+          },
+          "source": {
+            "name": "Started by",
+            "state": {
+              "home_assistant": "Home Assistant",
+              "run_all_zones": "Run all zones",
+              "program": "Program",
+              "schedule": "Schedule",
+              "other": "Other",
+              "blowout": "Blowout"
+            }
+          }
+        }
+      },
+      "next_run": {
+        "name": "Estimated next run",
+        "state_attributes": {
+          "estimated": {
+            "name": "Estimated",
+            "state": {
+              "true": "Yes",
+              "false": "No"
+            }
+          },
+          "last_start": {
+            "name": "Counts from"
+          }
+        }
+      },
+      "seasonal_adjustment": {
+        "name": "Seasonal adjustment"
+      },
+      "seasonal_adjustment_program": {
+        "name": "Seasonal adjustment {program}"
+      },
+      "time_remaining": {
+        "name": "Time remaining",
+        "state_attributes": {
+          "estimated": {
+            "name": "Estimated",
+            "state": {
+              "true": "Yes",
+              "false": "No"
+            }
+          }
+        }
+      },
+      "water_used": {
+        "name": "Water used"
+      }
+    },
+    "switch": {
+      "rain_skip": {
+        "name": "Rain skip"
+      },
+      "freeze_skip": {
+        "name": "Freeze skip",
+        "state_attributes": {
+          "weather_entity": {
+            "name": "Weather forecast"
+          },
+          "temperature_sensor": {
+            "name": "Temperature sensor"
+          },
+          "freeze_temperature": {
+            "name": "Freezing at or below"
+          },
+          "temperature_unit": {
+            "name": "Temperature unit"
+          },
+          "check_time": {
+            "name": "Check time"
+          },
+          "last_check": {
+            "name": "Last check"
+          },
+          "last_low": {
+            "name": "Last low"
+          },
+          "last_skipped": {
+            "name": "Last skipped"
+          },
+          "last_stopped": {
+            "name": "Last stopped"
+          }
+        }
+      },
+      "weather_adjustment": {
+        "name": "Weather adjustment",
+        "state_attributes": {
+          "weather_entity": {
+            "name": "Weather forecast"
+          },
+          "low": {
+            "name": "Low"
+          },
+          "high": {
+            "name": "High"
+          },
+          "check_time": {
+            "name": "Check time"
+          },
+          "last_check": {
+            "name": "Last check"
+          },
+          "last_high": {
+            "name": "Last high"
+          },
+          "last_percent": {
+            "name": "Last seasonal adjustment"
+          }
+        }
+      },
+      "moisture_skip": {
+        "name": "Soil moisture skip",
+        "state_attributes": {
+          "moisture_sensor": {
+            "name": "Soil moisture sensor"
+          },
+          "moisture_threshold": {
+            "name": "Skip at or above"
+          },
+          "check_time": {
+            "name": "Check time"
+          },
+          "last_check": {
+            "name": "Last check"
+          },
+          "last_moisture": {
+            "name": "Last moisture"
+          },
+          "last_skipped": {
+            "name": "Last skipped"
+          }
+        }
+      }
+    },
+    "valve": {
+      "zone": {
+        "name": "Valve"
+      }
+    },
+    "calendar": {
+      "run_history": {
+        "name": "Run history"
+      },
+      "schedule": {
+        "name": "Schedule"
+      }
+    }
+  },
+  "services": {
+    "start_zone": {
+      "name": "Start zone",
+      "description": "Runs a zone once for a set time, without changing its valve runtime.",
+      "fields": {
+        "duration": {
+          "name": "Duration",
+          "description": "How long to run the zone. Rain Bird runs zones in whole minutes."
+        },
+        "cycle_and_soak": {
+          "name": "Cycle and soak",
+          "description": "Split the run into cycles with soaks between them, using the cycle and soak times from the options."
+        }
+      }
+    },
+    "blowout": {
+      "name": "Blowout sprinklers",
+      "description": "Winterize with an air compressor: open each zone in short bursts with a rest after each one, one zone after another. Fields left out use the Blowout settings in the options.",
+      "fields": {
+        "zones": {
+          "name": "Zones",
+          "description": "Zone numbers to blow out, in order. Leave out for the zones in the options."
+        },
+        "cycles": {
+          "name": "Bursts per zone",
+          "description": "How many times each zone is opened."
+        },
+        "on_time": {
+          "name": "Burst length",
+          "description": "How long each burst runs, in whole minutes."
+        },
+        "rest": {
+          "name": "Rest",
+          "description": "Pause after every burst, including between zones."
+        }
+      }
+    }
+  },
+  "issues": {
+    "rainbird_removed": {
+      "title": "{title} has no Rain Bird controller",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Remove {title}?",
+            "description": "The Rain Bird integration entry that {title} extends was removed, so its valves and other entities can't work.\\n\\nIf you set up Rain Bird again, remove {title} and add Rain Bird Extended again for the new controller. Select **Submit** to remove {title} now."
+          }
+        }
+      }
+    }
+  },
+  "selector": {
+    "stop_action": {
+      "options": {
+        "stop_irrigation": "Stop watering",
+        "stop_and_turn_off": "Stop watering and turn the controller off"
+      }
+    },
+    "frequency": {
+      "options": {
+        "custom": "Custom",
+        "odd": "Odd",
+        "even": "Even",
+        "cyclic": "Cyclic"
+      }
+    },
+    "weekday": {
+      "options": {
+        "sun": "Sunday",
+        "mon": "Monday",
+        "tue": "Tuesday",
+        "wed": "Wednesday",
+        "thu": "Thursday",
+        "fri": "Friday",
+        "sat": "Saturday"
+      }
+    }
+  }
+}
