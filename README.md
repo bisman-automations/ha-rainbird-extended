@@ -1,14 +1,15 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/bisman-automations/ha-rainbird-extended/main/custom_components/rainbird_extended/brand/icon@2x.png" alt="Rain Bird Extended" width="128" height="128">
+  <img src="https://raw.githubusercontent.com/bisman-automations/ha-rainbird-extended/main/custom_components/rainbird_extended/brand/icon.png" alt="Rain Bird Extended icon" width="128">
 </p>
 
-<h1 align="center">Rain Bird Extended</h1>
+# Rain Bird Extended
 
-<p align="center">
-  <a href="https://hacs.xyz"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg" alt="HACS Custom"></a>
-  <a href="https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/ci.yml"><img src="https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-</p>
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.9%2B-blue.svg)](https://www.home-assistant.io/)
+[![GitHub Release](https://img.shields.io/github/v/release/bisman-automations/ha-rainbird-extended)](https://github.com/bisman-automations/ha-rainbird-extended/releases)
+[![Test](https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/test.yml/badge.svg)](https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/test.yml)
+[![Validate](https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/validate.yml/badge.svg)](https://github.com/bisman-automations/ha-rainbird-extended/actions/workflows/validate.yml)
+[![License](https://img.shields.io/github/license/bisman-automations/ha-rainbird-extended)](LICENSE)
 
 A Home Assistant custom integration that extends the built-in
 [Rain Bird](https://www.home-assistant.io/integrations/rainbird) integration.
@@ -319,24 +320,24 @@ show a single read-only sensor from the controller state, if they report it.
 - Home Assistant 2026.9 or newer (tested against 2026.9 and 2026.10)
 - The core **Rain Bird** integration set up for your controller
 
-## Install
+## Installation
 
 ### HACS
 
-[![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=bisman-automations&repository=ha-rainbird-extended&category=integration)
+[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=bisman-automations&repository=ha-rainbird-extended&category=integration)
 
-Or add it by hand:
+1. Click the button above, or in HACS open the menu, choose **Custom repositories**, and add `https://github.com/bisman-automations/ha-rainbird-extended` as an **Integration**.
+2. Download **Rain Bird Extended** and restart Home Assistant.
 
-1. HACS → ⋮ → **Custom repositories** → add
-   `https://github.com/bisman-automations/ha-rainbird-extended` as an **Integration**.
-2. Install **Rain Bird Extended** and restart Home Assistant.
+Requires **Home Assistant 2026.9 or newer**.
 
 ### Manual
 
-Copy `custom_components/rainbird_extended` into your config's
-`custom_components` folder and restart.
+Download `rainbird_extended.zip` from the [latest release](https://github.com/bisman-automations/ha-rainbird-extended/releases/latest), unzip it into `config/custom_components/rainbird_extended/`, and restart Home Assistant.
 
-## Set up
+## Setup
+
+[![Open your Home Assistant instance and start setting up Rain Bird Extended.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=rainbird_extended)
 
 **Settings → Devices & services → Add integration → Rain Bird Extended.** With
 one controller it is added immediately; with several you pick which one.
@@ -423,22 +424,50 @@ so you don't get each zone twice; the switches are disabled by default.
   Extended reloads with it automatically. If the Rain Bird entry is deleted,
   **Settings → Repairs** shows an issue that removes Rain Bird Extended for it.
 
-## Reporting a problem
+## Troubleshooting
 
 Open an [issue](https://github.com/bisman-automations/ha-rainbird-extended/issues)
 and attach diagnostics: **Settings → Devices & services → Rain Bird Extended →
 ⋮ → Download diagnostics**. They include your controller model and firmware and
 whether it reports remaining run time; the controller's MAC address is removed.
 
+### Diagnostics and debug logs
+
+When something goes wrong, download diagnostics from **Settings → Devices & services → Rain Bird Extended → ⋮ → Download diagnostics** and check the file before you share it.
+
+For debug logs, use **Enable debug logging** on the integration page, or add this to `configuration.yaml` and restart:
+
+```yaml
+logger:
+  logs:
+    custom_components.rainbird_extended: debug
+```
+
+Then open an [issue](https://github.com/bisman-automations/ha-rainbird-extended/issues/new/choose) with the diagnostics, the log, and your Home Assistant and Rain Bird Extended versions.
+
 ## Development
 
+Tests run inside a real Home Assistant through
+[pytest-homeassistant-custom-component](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component).
+You need Python 3.14 for the current Home Assistant.
+
 ```bash
-python -m venv .venv && . .venv/bin/activate
+python3.14 -m venv .venv && . .venv/bin/activate
 pip install -r requirements_test.txt
-pytest
 ruff check . && ruff format --check .
+pytest
 ```
+
+The frontend tests run with `node --test tests/*.mjs`.
+
+To test against the oldest supported Home Assistant (2026.9), use Python 3.14 and
+`pip install -r requirements_test_min.txt` instead.
+
+CI runs the same checks on every push and pull request, on both Home Assistant
+versions, plus hassfest, HACS validation and the shared repo standards, using the
+workflows in [bisman-automations/.github](https://github.com/bisman-automations/.github).
+Releases are drafted from [CHANGELOG.md](CHANGELOG.md); see [CLAUDE.md](CLAUDE.md).
 
 ## License
 
-[MIT](LICENSE)
+MIT. See [LICENSE](LICENSE).
