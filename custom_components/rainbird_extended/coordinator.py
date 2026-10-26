@@ -427,7 +427,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         except RainbirdDeviceBusyException:
             _LOGGER.debug("Controller busy; keeping previous end times")
             return None
-        except (RainbirdDeviceNackError, RainbirdCodingException, KeyError, ValueError):
+        except RainbirdDeviceNackError, RainbirdCodingException, KeyError, ValueError:
             # Older controllers don't implement this command; fall back to the
             # end times we track for runs started from Home Assistant.
             _LOGGER.info(
@@ -613,7 +613,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         """Days the controller's rain delay has left."""
         try:
             return int(getattr(self.rainbird.data, "rain_delay", 0) or 0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 0
 
     def _configured_slot(
