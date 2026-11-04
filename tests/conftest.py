@@ -19,12 +19,7 @@ from pyrainbird.data import (
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.rainbird_extended.const import (
-    CONF_DISABLE_RAINBIRD_SWITCHES,
-    CONF_RAINBIRD_ENTRY_ID,
-    DOMAIN,
-)
-from homeassistant.const import Platform
+from custom_components.rainbird_extended.const import CONF_RAINBIRD_ENTRY_ID, DOMAIN
 from homeassistant.core import HomeAssistant
 
 MAC_ADDRESS = "4C:A1:61:00:11:22"
@@ -139,12 +134,9 @@ def rainbird_entry(hass: HomeAssistant) -> MockConfigEntry:
 
 
 @pytest.fixture
-def extended_options() -> dict[str, bool]:
-    """Options for the Rain Bird Extended entry.
-
-    Most tests keep the core switches so they can check they stay in sync.
-    """
-    return {CONF_DISABLE_RAINBIRD_SWITCHES: False}
+def extended_options() -> dict[str, object]:
+    """Options for the Rain Bird Extended entry."""
+    return {}
 
 
 @pytest.fixture
@@ -167,7 +159,13 @@ def extended_entry(
 
 @pytest.fixture
 def mock_rainbird(controller: MagicMock) -> Generator[MagicMock]:
-    """Make the core Rain Bird integration talk to the fake controller."""
+    """Stand up core Rain Bird against a fake controller.
+
+    The fake controller only exists so Rain Bird can create its public
+    entities and services. Rain Bird Extended is not given the controller;
+    tests that check commands should see ``rainbird.start_irrigation``,
+    ``switch.turn_off``, ``number.set_value`` or ``button.press``.
+    """
     with (
         patch(
             "homeassistant.components.rainbird.create_controller",
@@ -177,7 +175,6 @@ def mock_rainbird(controller: MagicMock) -> Generator[MagicMock]:
             "homeassistant.components.rainbird.async_create_clientsession",
             return_value=MagicMock(close=AsyncMock()),
         ),
-        patch("homeassistant.components.rainbird.PLATFORMS", [Platform.SWITCH]),
     ):
         yield controller
 

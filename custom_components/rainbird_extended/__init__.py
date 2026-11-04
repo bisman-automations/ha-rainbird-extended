@@ -1,7 +1,8 @@
 """Rain Bird Extended: per-zone valves, run times and time remaining.
 
 Adds its own controller and zone devices, linked to the ones the core Rain Bird
-integration created, reusing its connection to the controller.
+integration created. Commands and readings use Rain Bird's entities and
+services. Rain Bird's entity registry is never written.
 """
 
 from __future__ import annotations
@@ -43,9 +44,12 @@ from .const import (
     ATTR_ON_TIME,
     ATTR_REST,
     ATTR_ZONES,
+    CONF_ADJUST_HIGH_PERCENT,
+    CONF_ADJUST_HIGH_TEMPERATURE,
+    CONF_ADJUST_LOW_PERCENT,
+    CONF_ADJUST_LOW_TEMPERATURE,
     CONF_DISABLE_RAINBIRD_SWITCHES,
     CONF_RAINBIRD_ENTRY_ID,
-    DEFAULT_DISABLE_RAINBIRD_SWITCHES,
     DOMAIN,
     RAINBIRD_DOMAIN,
     RUNTIME_MAX_SECONDS,
@@ -98,9 +102,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 continue
             # Retry right away instead of waiting for the retry backoff, or
             # pick up the new controller objects after Rain Bird reloaded.
-            if ours.state is ConfigEntryState.SETUP_RETRY or (
-                ours.state is ConfigEntryState.LOADED
-                and ours.runtime_data.rainbird_data is not entry.runtime_data
+            # Rain Bird finished loading, or its options changed. Retry
+            # immediately, or reload so new zones and the duration option
+            # are picked up. This does not look at Rain Bird's runtime data.
+            if ours.state in (
+                ConfigEntryState.SETUP_RETRY,
+                ConfigEntryState.LOADED,
             ):
                 hass.config_entries.async_schedule_reload(ours.entry_id)
 
@@ -214,16 +221,41 @@ async def async_setup_entry(
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_remove_stale_entities(hass, entry)
-
-    _async_sync_rainbird_switches(
-        hass,
-        rainbird_entry,
-        coordinator.linked_zones,
-        disable=entry.options.get(
-            CONF_DISABLE_RAINBIRD_SWITCHES, DEFAULT_DISABLE_RAINBIRD_SWITCHES
-        ),
-    )
     await async_register_panel(hass)
+    return True
+
+
+# Options removed because they needed Rain Bird internals: disabling Rain
+# Bird's switches, and weather adjustment (it wrote seasonal adjust).
+_DROPPED_OPTIONS = frozenset(
+    {
+        CONF_DISABLE_RAINBIRD_SWITCHES,
+        CONF_ADJUST_LOW_TEMPERATURE,
+        CONF_ADJUST_LOW_PERCENT,
+        CONF_ADJUST_HIGH_TEMPERATURE,
+        CONF_ADJUST_HIGH_PERCENT,
+    }
+)
+
+
+async def async_migrate_entry(
+    hass: HomeAssistant, entry: RainbirdExtendedConfigEntry
+) -> bool:
+    """Drop options that wrote to Rain Bird or its registry.
+
+    Switches Rain Bird owns are left exactly as they are: nothing is
+    disabled or re-enabled here.
+    """
+    if entry.version > 2:
+        return False
+    if entry.version < 2:
+        options = {
+            key: value
+            for key, value in entry.options.items()
+            if key not in _DROPPED_OPTIONS
+        }
+        hass.config_entries.async_update_entry(entry, options=options, version=2)
+        _LOGGER.debug("Migrated %s to version 2", entry.title)
     return True
 
 
@@ -240,66 +272,29 @@ async def async_unload_entry(
 async def async_remove_entry(
     hass: HomeAssistant, entry: RainbirdExtendedConfigEntry
 ) -> None:
-    """Give the core Rain Bird switches back when this is removed."""
+    """Clear our repair. Rain Bird's switches are not touched."""
     ir.async_delete_issue(hass, DOMAIN, _issue_id(entry))
-    if rainbird_entry := hass.config_entries.async_get_entry(
-        entry.data[CONF_RAINBIRD_ENTRY_ID]
-    ):
-        _async_sync_rainbird_switches(hass, rainbird_entry, [], disable=False)
 
 
 def _issue_id(entry: ConfigEntry) -> str:
     return f"rainbird_removed_{entry.entry_id}"
 
 
-@callback
-def _async_sync_rainbird_switches(
-    hass: HomeAssistant,
-    rainbird_entry: ConfigEntry,
-    zones: list[int],
-    *,
-    disable: bool,
-) -> None:
-    """Disable (or re-enable) the core switches for zones that have a valve.
-
-    Switches are marked as disabled by the integration, so ones the user
-    disabled themselves are never re-enabled here.
-    """
-    registry = er.async_get(hass)
-    uid = rainbird_entry.unique_id
-    zone_uids = {f"{uid}-{zone}" for zone in zones}
-    for entity in er.async_entries_for_config_entry(registry, rainbird_entry.entry_id):
-        if entity.domain != Platform.SWITCH or not entity.unique_id.startswith(
-            f"{uid}-"
-        ):
-            continue
-        if disable and entity.unique_id in zone_uids:
-            if entity.disabled_by is None:
-                _LOGGER.debug("Disabling %s; use its valve instead", entity.entity_id)
-                registry.async_update_entity(
-                    entity.entity_id,
-                    disabled_by=er.RegistryEntryDisabler.INTEGRATION,
-                )
-        elif entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
-            _LOGGER.debug("Re-enabling %s", entity.entity_id)
-            registry.async_update_entity(entity.entity_id, disabled_by=None)
+# Entity keys removed in 2.0.0. They read or wrote the controller through
+# Rain Bird internals, which a custom integration must not do.
+_REMOVED_ENTITY_KEYS = ("seasonal_adjustment", "weather_adjustment")
 
 
 @callback
 def _async_remove_stale_entities(
     hass: HomeAssistant, entry: RainbirdExtendedConfigEntry
 ) -> None:
-    """Remove seasonal adjustment entities this controller no longer gets.
+    """Remove entities this integration no longer creates.
 
-    Before 1.2.0 every controller had one Seasonal adjustment sensor from the
-    controller state; controllers with water budgets now get one per program
-    instead, which would otherwise leave the old one behind as unavailable.
+    Only Rain Bird Extended's own registry entries are removed.
     """
     registry = er.async_get(hass)
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if "seasonal_adjustment" not in entity.unique_id or entity.disabled_by:
-            continue
-        state = hass.states.get(entity.entity_id)
-        if state is None or state.attributes.get("restored"):
+        if any(key in entity.unique_id for key in _REMOVED_ENTITY_KEYS):
             _LOGGER.debug("Removing %s, no longer provided", entity.entity_id)
             registry.async_remove(entity.entity_id)

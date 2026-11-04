@@ -45,6 +45,34 @@ def _local(hour: int, minute: int, second: int = 0) -> datetime:
     return dt_util.now().replace(hour=hour, minute=minute, second=second, microsecond=0)
 
 
+def zone_calendar_events(
+    description: str,
+    *,
+    hour: int = 5,
+    minute: int = 0,
+    length: timedelta = timedelta(minutes=25),
+    summary: str = "PGM A",
+) -> list[dict[str, str]]:
+    """Rain Bird calendar events that list zone run times, as in HA 2026.11+.
+
+    One occurrence a day from yesterday through the next week, so a test can
+    sit inside today's run or look ahead to the next one.
+    """
+    today = _local(hour, minute)
+    events = []
+    for delta in range(-1, 8):
+        start = today + timedelta(days=delta)
+        events.append(
+            {
+                "summary": summary,
+                "start": start.isoformat(),
+                "end": (start + length).isoformat(),
+                "description": description,
+            }
+        )
+    return events
+
+
 async def _setup(hass: HomeAssistant, *entries: MockConfigEntry) -> None:
     """Set up config entries in order."""
     for entry in entries:

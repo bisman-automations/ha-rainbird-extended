@@ -25,10 +25,6 @@ from homeassistant.util import dt as dt_util
 
 from . import RainbirdExtendedConfigEntry
 from .const import (
-    CONF_ADJUST_HIGH_PERCENT,
-    CONF_ADJUST_HIGH_TEMPERATURE,
-    CONF_ADJUST_LOW_PERCENT,
-    CONF_ADJUST_LOW_TEMPERATURE,
     CONF_FREEZE_DELAY_DAYS,
     CONF_FREEZE_SENSOR,
     CONF_FREEZE_TEMPERATURE,
@@ -40,8 +36,6 @@ from .const import (
     CONF_RAIN_DELAY_DAYS,
     CONF_TEMPERATURE_UNIT,
     CONF_WEATHER_ENTITY,
-    DEFAULT_ADJUST_HIGH_PERCENT,
-    DEFAULT_ADJUST_LOW_PERCENT,
     DEFAULT_FREEZE_DELAY_DAYS,
     DEFAULT_MOISTURE_DELAY_DAYS,
     DEFAULT_MOISTURE_THRESHOLD,
@@ -51,9 +45,7 @@ from .const import (
     EVENT_FREEZE_SKIP,
     EVENT_MOISTURE_SKIP,
     EVENT_RAIN_SKIP,
-    EVENT_WEATHER_ADJUSTMENT,
     RAINY_CONDITIONS,
-    SEASONAL_ADJUST_MIN,
     TEMPERATURE_DEFAULTS,
 )
 from .coordinator import RainbirdExtendedCoordinator
@@ -82,12 +74,6 @@ async def async_setup_entry(
         entities.append(RainbirdRainSkip(coordinator, options))
     if options.get(CONF_WEATHER_ENTITY) or options.get(CONF_FREEZE_SENSOR):
         entities.append(RainbirdFreezeSkip(coordinator, options, unit))
-    if (
-        options.get(CONF_WEATHER_ENTITY)
-        and coordinator.supports_water_budget
-        and coordinator.can_set_water_budget
-    ):
-        entities.append(RainbirdWeatherAdjustment(coordinator, options, unit))
     if options.get(CONF_MOISTURE_SENSOR):
         entities.append(RainbirdMoistureSkip(coordinator, options))
     async_add_entities(entities)
@@ -176,8 +162,8 @@ class _DailyWeatherSwitch(
         raise NotImplementedError
 
     def _current_delay(self) -> int:
-        data = self.coordinator.rainbird.data
-        return int(getattr(data, "rain_delay", 0) or 0)
+        """Days of rain delay, from Rain Bird's Rain delay number."""
+        return self.coordinator.rain_delay_days
 
     @staticmethod
     def _iso(value: datetime | None) -> str | None:
@@ -272,6 +258,9 @@ class RainbirdFreezeSkip(_DailyWeatherSwitch):
         self._last_low: float | None = None
         self._last_skipped: datetime | None = None
         self._last_stopped: datetime | None = None
+        # One stop at a time. Coordinator updates while the stop is in
+        # flight would otherwise stop again for the same freeze.
+        self._stop_pending = False
 
     async def async_added_to_hass(self) -> None:
         """Also watch the temperature sensor."""
@@ -354,8 +343,9 @@ class RainbirdFreezeSkip(_DailyWeatherSwitch):
         if not (self.coordinator.active_zones or self.coordinator.sequence_running):
             return
         value = self._sensor_value()
-        if value is None or value > self._threshold:
+        if value is None or value > self._threshold or self._stop_pending:
             return
+        self._stop_pending = True
         _LOGGER.info(
             "Freeze skip: %s is %s%s, stopping irrigation",
             self._sensor,
@@ -373,6 +363,8 @@ class RainbirdFreezeSkip(_DailyWeatherSwitch):
             await self.coordinator.async_stop()
         except HomeAssistantError as err:
             _LOGGER.warning("Freeze skip: could not stop irrigation: %s", err)
+        finally:
+            self._stop_pending = False
         self.async_write_ha_state()
 
     def _fire(self, reason: str, temperature: float) -> None:
@@ -384,105 +376,6 @@ class RainbirdFreezeSkip(_DailyWeatherSwitch):
                 "temperature": temperature,
                 "temperature_unit": self._unit,
                 "rain_delay_days": self._days if reason == "forecast" else None,
-            },
-        )
-
-
-class RainbirdWeatherAdjustment(_DailyWeatherSwitch):
-    """While on, set the seasonal adjustment from today's forecast high.
-
-    The percentage goes in a straight line from the low percent at the low
-    temperature to the high percent at the high temperature, and stays at
-    those ends beyond them. It's rounded to 5% and applied to every program.
-    """
-
-    _default_on = False
-
-    def __init__(
-        self,
-        coordinator: RainbirdExtendedCoordinator,
-        options: dict[str, Any],
-        unit: str,
-    ) -> None:
-        """Initialize the switch."""
-        super().__init__(coordinator, options, "weather_adjustment")
-        self._unit = unit
-        self._low_temp = _option(options, CONF_ADJUST_LOW_TEMPERATURE, unit)
-        self._high_temp = _option(options, CONF_ADJUST_HIGH_TEMPERATURE, unit)
-        self._low_percent = int(
-            options.get(CONF_ADJUST_LOW_PERCENT, DEFAULT_ADJUST_LOW_PERCENT)
-        )
-        self._high_percent = int(
-            options.get(CONF_ADJUST_HIGH_PERCENT, DEFAULT_ADJUST_HIGH_PERCENT)
-        )
-        self._last_high: float | None = None
-        self._last_percent: int | None = None
-
-    def _restore(self, attributes: dict[str, Any]) -> None:
-        self._last_percent = attributes.get("last_percent")
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the settings and what the last check set."""
-        return {
-            "weather_entity": self._weather,
-            "low": f"{self._low_percent}% at {self._low_temp:g}{self._unit}",
-            "high": f"{self._high_percent}% at {self._high_temp:g}{self._unit}",
-            "check_time": self._check.isoformat(),
-            "last_check": self._iso(self._last_check),
-            "last_high": self._last_high,
-            "last_percent": self._last_percent,
-        }
-
-    def percent_for(self, high: float) -> int:
-        """The seasonal adjustment for a forecast high."""
-        span = self._high_temp - self._low_temp
-        if span <= 0:
-            fraction = 1.0 if high >= self._high_temp else 0.0
-        else:
-            fraction = min(max((high - self._low_temp) / span, 0.0), 1.0)
-        percent = self._low_percent + fraction * (
-            self._high_percent - self._low_percent
-        )
-        percent = 5 * round(percent / 5)
-        return int(
-            min(max(percent, SEASONAL_ADJUST_MIN), self.coordinator.max_seasonal_adjust)
-        )
-
-    async def async_check(self) -> None:
-        """Set every program's seasonal adjustment from today's high."""
-        assert self._weather is not None
-        forecast = await async_todays_forecast(self.hass, self._weather)
-        high = forecast_temperature(
-            self.hass, self._weather, forecast, "temperature", self._unit
-        )
-        self._last_check = dt_util.utcnow()
-        if high is None:
-            raise HomeAssistantError(f"{self._weather} has no forecast high")
-        self._last_high = round(high, 1)
-        percent = self.percent_for(high)
-        changed = [
-            key
-            for key in self.coordinator.water_budget_keys
-            if self.coordinator.water_budgets.get(key) != percent
-        ]
-        for key in changed:
-            await self.coordinator.async_set_water_budget(key, percent)
-        self._last_percent = percent
-        _LOGGER.info(
-            "Weather adjustment: high of %s%s, seasonal adjustment %s%%",
-            self._last_high,
-            self._unit,
-            percent,
-        )
-        self.hass.bus.async_fire(
-            EVENT_WEATHER_ADJUSTMENT,
-            {
-                "entity_id": self.entity_id,
-                "high": self._last_high,
-                "temperature_unit": self._unit,
-                "percent": percent,
-                "changed": bool(changed),
             },
         )
 

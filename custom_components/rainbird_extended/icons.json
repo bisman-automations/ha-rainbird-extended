@@ -37,12 +37,6 @@
       "flow_rate": {
         "default": "mdi:water-pump"
       },
-      "seasonal_adjustment": {
-        "default": "mdi:sun-snowflake-variant"
-      },
-      "seasonal_adjustment_program": {
-        "default": "mdi:sun-snowflake-variant"
-      },
       "valve_runtime": {
         "default": "mdi:timer-cog-outline"
       },
@@ -56,12 +50,6 @@
       },
       "next_run": {
         "default": "mdi:calendar-clock"
-      },
-      "seasonal_adjustment": {
-        "default": "mdi:sun-snowflake-variant"
-      },
-      "seasonal_adjustment_program": {
-        "default": "mdi:sun-snowflake-variant"
       },
       "time_remaining": {
         "default": "mdi:timer-sand"
@@ -81,12 +69,6 @@
         "default": "mdi:snowflake-alert",
         "state": {
           "off": "mdi:snowflake-off"
-        }
-      },
-      "weather_adjustment": {
-        "default": "mdi:thermometer-water",
-        "state": {
-          "off": "mdi:thermometer-off"
         }
       },
       "moisture_skip": {

@@ -30,12 +30,10 @@
         "title": "Settings",
         "data": {
           "stop_action": "Stop irrigation button",
-          "disable_rainbird_switches": "Disable the Rain Bird zone switches",
           "controller_power_entity": "Controller power"
         },
         "data_description": {
           "stop_action": "What the dashboard's Stop irrigation button does. Stop watering stops what's running now; programs still run at their next start time. Stop watering and turn the controller off also turns off the Controller power switch, so nothing runs until it's turned back on (for example for the winter).",
-          "disable_rainbird_switches": "Each zone's valve replaces its Rain Bird switch, so the switches are disabled to avoid having every zone twice (for example in HomeKit). Turn this off to keep both.",
           "controller_power_entity": "Optional. An on/off entity that's off while the controller is turned off, such as a Controller switch from another integration. While it's off, the Schedule calendar shows no watering, each zone's Estimated next run is unknown, and the dashboard shows Turned off."
         },
         "sections": {
@@ -75,8 +73,8 @@
               "rain_check_time": "Check the weather at"
             },
             "data_description": {
-              "weather_entity": "Pick a weather entity to add the Rain skip, Freeze skip and Weather adjustment switches.",
-              "rain_check_time": "Rain, freeze and soil moisture skip and weather adjustment all check at this time each day. Pick a time before your programs start."
+              "weather_entity": "Pick a weather entity to add the Rain skip and Freeze skip switches.",
+              "rain_check_time": "Rain, freeze and soil moisture skip all check at this time each day. Pick a time before your programs start."
             }
           },
           "rain_skip_section": {
@@ -117,17 +115,6 @@
               "moisture_sensor": "Adds a Soil moisture skip switch.",
               "moisture_delay_days": "Only raised, never shortened, if a longer rain delay is already set."
             }
-          },
-          "weather_adjustment_section": {
-            "name": "Weather adjustment",
-            "description": "Sets every program's seasonal adjustment from today's forecast high: the low percent at or below the low temperature, the high percent at or above the high temperature, and in between in a straight line (rounded to 5%). Needs Home Assistant 2026.10 or newer. Its switch starts off.",
-            "data": {
-              "adjust_low_temperature": "Low temperature",
-              "adjust_low_percent": "Seasonal adjustment at the low temperature",
-              "adjust_high_temperature": "High temperature",
-              "adjust_high_percent": "Seasonal adjustment at the high temperature"
-            },
-            "data_description": {}
           }
         }
       },
@@ -153,7 +140,7 @@
           "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
           "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
           "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
-          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+          "seasonal_adjust": "Scales the runtimes on the Schedule calendar and for time remaining. This doesn't change the controller."
         }
       },
       "program_b": {
@@ -178,7 +165,7 @@
           "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
           "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
           "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
-          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+          "seasonal_adjust": "Scales the runtimes on the Schedule calendar and for time remaining. This doesn't change the controller."
         }
       },
       "program_c": {
@@ -203,7 +190,7 @@
           "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
           "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
           "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
-          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+          "seasonal_adjust": "Scales the runtimes on the Schedule calendar and for time remaining. This doesn't change the controller."
         }
       },
       "program_d": {
@@ -228,7 +215,7 @@
           "frequency": "Custom: the days below. Odd or Even: odd or even days of the month. Cyclic: every so many days from the start date.",
           "start_date": "The first day a Cyclic program runs. Leave empty to count from today.",
           "zones": "Stations run one after another in station order, each for its zone's Valve runtime.",
-          "seasonal_adjust": "Scales the runtimes, used when the controller doesn't report its own. With Automatic Seasonal Adjust in the app it changes daily, so this is an estimate."
+          "seasonal_adjust": "Scales the runtimes on the Schedule calendar and for time remaining. This doesn't change the controller."
         }
       }
     },
@@ -314,12 +301,6 @@
       "flow_rate": {
         "name": "Flow rate"
       },
-      "seasonal_adjustment": {
-        "name": "Seasonal adjustment"
-      },
-      "seasonal_adjustment_program": {
-        "name": "Seasonal adjustment {program}"
-      },
       "valve_runtime": {
         "name": "Valve runtime"
       },
@@ -364,12 +345,6 @@
             "name": "Counts from"
           }
         }
-      },
-      "seasonal_adjustment": {
-        "name": "Seasonal adjustment"
-      },
-      "seasonal_adjustment_program": {
-        "name": "Seasonal adjustment {program}"
       },
       "time_remaining": {
         "name": "Time remaining",
@@ -420,32 +395,6 @@
           },
           "last_stopped": {
             "name": "Last stopped"
-          }
-        }
-      },
-      "weather_adjustment": {
-        "name": "Weather adjustment",
-        "state_attributes": {
-          "weather_entity": {
-            "name": "Weather forecast"
-          },
-          "low": {
-            "name": "Low"
-          },
-          "high": {
-            "name": "High"
-          },
-          "check_time": {
-            "name": "Check time"
-          },
-          "last_check": {
-            "name": "Last check"
-          },
-          "last_high": {
-            "name": "Last high"
-          },
-          "last_percent": {
-            "name": "Last seasonal adjustment"
           }
         }
       },

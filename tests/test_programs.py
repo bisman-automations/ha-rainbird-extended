@@ -81,11 +81,14 @@ async def test_program_options(
     """Each program has its own form; the settings form keeps them."""
     result = await hass.config_entries.options.async_init(extended_entry.entry_id)
     assert result["type"] is FlowResultType.MENU
+    # Run program buttons (2026.10+) give the exact count. A schedule calendar
+    # without those buttons still offers programs A-D.
+    count = hass.config_entries.async_entries("rainbird_extended")[
+        0
+    ].runtime_data.max_programs
     assert result["menu_options"] == [
         "settings",
-        "program_a",
-        "program_b",
-        "program_c",
+        *(f"program_{chr(ord('a') + index)}" for index in range(count)),
     ]
     result = await _open_options(hass, extended_entry.entry_id, "program_a")
     assert result["step_id"] == "program_a"
@@ -120,7 +123,7 @@ async def test_program_options(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
     assert extended_entry.options["program_a"]["zones"] == [1, 2]
-    assert extended_entry.options["disable_rainbird_switches"] is False
+    assert "disable_rainbird_switches" not in extended_entry.options
     # The schedule calendar comes with the program (Monday is next).
     assert hass.states.get(SCHEDULE).attributes["start_time"] == "2026-10-12 07:00:00"
 
@@ -128,7 +131,7 @@ async def test_program_options(
     result = await _open_options(hass, extended_entry.entry_id)
     assert result["step_id"] == "settings"
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], nest({"disable_rainbird_switches": True})
+        result["flow_id"], nest({"stop_action": "stop_irrigation"})
     )
     await hass.async_block_till_done()
     assert extended_entry.options["program_a"]["days"] == ["mon", "wed"]
@@ -330,6 +333,8 @@ async def test_run_program_from_options(
     controller.get_combined_controller_state.side_effect = RainbirdDeviceNackError()
     controller.water_budget.side_effect = RainbirdDeviceNackError()
     await _setup(hass, rainbird_entry, extended_entry)
+    if hass.states.get("button.rain_bird_controller_run_program_a") is None:
+        pytest.skip("Rain Bird Run program buttons need Home Assistant 2026.10")
     await _press(hass, "button.rain_bird_controller_run_program_a")
     controller.set_program.assert_awaited_once_with(0)
     active_zones.add(1)

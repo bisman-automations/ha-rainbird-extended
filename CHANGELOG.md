@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-11-04
+
+### Removed
+
+- **Rain Bird's zone switches are no longer disabled for you.** The **Disable the Rain Bird zone switches** setting is gone. Switches you already have stay as they are: nothing is turned back on, and nothing is disabled, when you update or when you remove Rain Bird Extended. To show only the valves, hide the Rain Bird zone switches yourself. Leave a switch enabled if you still want its valve to run that zone, because the valve starts and stops the zone through that switch. Hiding it on a dashboard keeps it available.
+- **Seasonal adjustment** numbers and sensors. Rain Bird doesn't offer a way to read or change the controller's seasonal adjustment, so those entities are removed on update.
+- **Weather adjustment.** It set the controller's seasonal adjustment from the forecast, which can't be done through Rain Bird's actions. Rain skip, freeze skip and soil moisture skip stay; they set the rain delay.
+
+### Changed
+
+- Starting a zone, stopping, rain delay and Run program go through Rain Bird's own actions and entities: **Start irrigation** on the zone switch, turning that switch off, the **Rain delay** number, and Rain Bird's **Run program** button. Run program is there when Rain Bird has that button (Home Assistant 2026.10 and newer).
+- **Time remaining** for a run started here is still the time you asked for. A run started somewhere else uses a program you entered, or the zone times on Rain Bird's schedule calendar when that calendar lists them (Home Assistant 2026.11 and newer). Otherwise it's an estimate from the valve runtime, from when the zone switch turned on. The controller's own "seconds left" isn't available.
+- **Estimated next run** uses those same programs and calendar zone times. Without them it stays the last run plus **Run every**.
+- The valve shows a run you just started straight away. That update stays on Rain Bird Extended's entities.
+
 ## [1.10.4] - 2026-10-30
 
 ### Changed
@@ -323,6 +338,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[2.0.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.4...v2.0.0
 [1.10.4]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.3...v1.10.4
 [1.10.3]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.2...v1.10.3
 [1.10.2]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.1...v1.10.2

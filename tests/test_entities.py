@@ -193,6 +193,7 @@ async def test_close_valve_stops(
     assert abs(ended - dt_util.utcnow()) < timedelta(seconds=2)
 
 
+@pytest.mark.freeze_time("2026-10-09 20:00:00+00:00")
 @pytest.mark.parametrize("active_zones", [{2}])
 async def test_controller_reported_remaining(
     hass: HomeAssistant,
@@ -200,27 +201,23 @@ async def test_controller_reported_remaining(
     setup_integrations: MagicMock,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """A run started elsewhere uses the controller's remaining run time."""
+    """A run started elsewhere uses the valve runtime, not a private state call.
+
+    Rain Bird's switches only say on or off. Even if the controller would
+    report 5 minutes left, that number isn't on any entity, so the end is
+    estimated from the 6 minute valve runtime.
+    """
     assert hass.states.get(VALVE).state == "open"
     controller.get_combined_controller_state.return_value = controller_state(
         remaining=300, station=2
     )
+    start = dt_util.utcnow()
     await _poll_core(hass, freezer)
-    end = dt_util.parse_datetime(hass.states.get(REMAINING).state)
-    # Within a few seconds (polling advances the clock).
-    assert abs(end - (dt_util.utcnow() + timedelta(seconds=300))) < timedelta(seconds=5)
-
-    # Small drift between polls doesn't change the sensor.
-    controller.get_combined_controller_state.return_value = controller_state(
-        remaining=300 - 60 + 5, station=2
-    )
-    await _poll_core(hass, freezer)
-    assert dt_util.parse_datetime(hass.states.get(REMAINING).state) == end
-
-    # Busy controller: keep the last known end time.
-    controller.get_combined_controller_state.side_effect = RainbirdDeviceBusyException()
-    await _poll_core(hass, freezer)
-    assert dt_util.parse_datetime(hass.states.get(REMAINING).state) == end
+    controller.get_combined_controller_state.assert_not_awaited()
+    state = hass.states.get(REMAINING)
+    assert state.attributes["estimated"] is True
+    end = dt_util.parse_datetime(state.state)
+    assert abs(end - (start + timedelta(minutes=6))) < timedelta(seconds=5)
 
 
 # Away from the test schedule (05:00-05:25 local), which would win.
@@ -240,7 +237,7 @@ async def test_controller_without_remaining_support(
     start = dt_util.utcnow()
     await _poll_core(hass, freezer)
     await _poll_core(hass, freezer)
-    assert controller.get_combined_controller_state.await_count == 2  # setup + 1
+    controller.get_combined_controller_state.assert_not_awaited()
     assert hass.states.get(VALVE).state == "open"
     state = hass.states.get(REMAINING)
     assert state.attributes["estimated"] is True

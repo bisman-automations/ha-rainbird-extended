@@ -17,8 +17,9 @@ Its entities live on its own service devices, one for the controller and one
 for each zone, shown under **Linked devices** on the matching Rain Bird devices
 (and on anything else sharing the controller's MAC address, such as a UniFi
 client). They take their names and areas from the Rain Bird devices and follow
-renames, so entity names match the zones. It uses Rain Bird's connection to
-the controller rather than opening a second one.
+renames, so entity names match the zones. It runs and reads the controller
+through the Rain Bird integration's switches, buttons, numbers and calendar,
+rather than opening a second connection.
 
 Rain Bird Extended also adds an administrator-only **Rain Bird Extended**
 sidebar panel. Configure integration settings and Programs A–D in its in-panel
@@ -53,7 +54,7 @@ editor, and edit each zone's valve runtime, run interval, and flow rate there.
 | Valve | `valve.rain_bird_sprinkler_1` | Water valve. Open runs the zone for its valve runtime; close stops irrigation. |
 | Valve runtime | `number.rain_bird_sprinkler_1_valve_runtime` | How long the zone runs when opened, in seconds (1 min steps, 1 min – 24 h). Remembered across restarts. |
 | Time remaining | `sensor.rain_bird_sprinkler_1_time_remaining` | When the current run ends (timestamp — the UI shows a countdown like "in 4 minutes"); while idle, when the last run ended. Attribute `estimated`. See [How time remaining is worked out](#how-time-remaining-is-worked-out). |
-| Estimated next run | `sensor.rain_bird_sprinkler_1_estimated_next_run` | When the zone next runs: from the controller's schedule when it can be read, otherwise the last run's start plus **Run every**. Attributes `estimated`, `last_start`, `controller_off`. Unknown while the controller is [turned off](#controller-power). (Installed before 1.5.0, it keeps its `…_next_run` id.) |
+| Estimated next run | `sensor.rain_bird_sprinkler_1_estimated_next_run` | When the zone next runs: from programs you enter, or from zone times on Rain Bird's schedule calendar (Home Assistant 2026.11 and newer), otherwise the last run's start plus **Run every**. Attributes `estimated`, `last_start`, `controller_off`. Unknown while the controller is [turned off](#controller-power). (Installed before 1.5.0, it keeps its `…_next_run` id.) |
 | Run every | `number.rain_bird_sprinkler_1_run_every` | How many days apart the zone runs (1–30, default 1), for the estimated next run. |
 | Last run | `sensor.rain_bird_sprinkler_1_last_run` | When the zone last started, however it was started. Attributes `end`, `duration` (seconds) and `source`. Remembered across restarts. |
 | Run | `event.rain_bird_sprinkler_1_run` | Fires `started` and `finished` for every run, with `source` (`home_assistant`, `run_all_zones`, `blowout`, `program`, `schedule` or `other`), `start`, and on finish `end` and `duration`. See [Run events](#run-events). |
@@ -64,16 +65,14 @@ editor, and edit each zone's valve runtime, run interval, and flow rate there.
 
 | Entity | Example ID | What it does |
 | --- | --- | --- |
-| Run program A, B, … | `button.rain_bird_controller_run_program_a` | Starts one of the controller's programs. One button per program the model supports. |
+| Run program A, B, … | `button.rain_bird_controller_run_program_a` | Presses Rain Bird's own Run program button. Shown when Rain Bird has that button (Home Assistant 2026.10 and newer). |
 | Run all zones | `button.rain_bird_controller_run_all_zones` | Runs the zones once, each for its valve runtime — every zone in order, or the zones and order set in the options, optionally with cycle and soak. See [Run all zones and cycle and soak](#run-all-zones-and-cycle-and-soak). |
 | Blowout sprinklers | `button.rain_bird_controller_blowout_sprinklers` | Winterizing with an air compressor: each zone in short bursts with a rest after each. See [Blowout sprinklers](#blowout-sprinklers). |
 | Pause / Resume | `button.rain_bird_controller_pause`, `button.rain_bird_controller_resume` | Pause Run all zones, cycle and soak or a blowout where it is, and carry on later. See [Pause and resume](#pause-and-resume). |
 | Stop irrigation | `button.rain_bird_controller_stop_irrigation` | Stops whatever is running, including Run all zones, and forgets anything paused. |
-| Seasonal adjustment A, B, … | `number.rain_bird_controller_seasonal_adjustment_a` | Each program's seasonal adjust, 10–200% (100% = runtimes as programmed), re-read every 30 minutes. Controllers with one controller-wide value (ESP-RZXe, ST8) get a single **Seasonal adjustment**. See [Seasonal adjustment](#seasonal-adjustment). |
 | Irrigating | `binary_sensor.rain_bird_controller_irrigating` | On while any zone runs, however it was started. Attributes: `zones`, `end`, `run_all_zones`, `blowout`, `paused`. |
 | Rain skip | `switch.rain_bird_controller_rain_skip` | Only with a weather entity chosen in the options. See [Rain skip](#rain-skip). |
 | Freeze skip | `switch.rain_bird_controller_freeze_skip` | With a weather entity or temperature sensor chosen in the options. See [Freeze skip](#freeze-skip). |
-| Weather adjustment | `switch.rain_bird_controller_weather_adjustment` | With a weather entity chosen, on Home Assistant 2026.10 or newer. Starts off. See [Weather adjustment](#weather-adjustment). |
 | Soil moisture skip | `switch.rain_bird_controller_soil_moisture_skip` | With a soil moisture sensor chosen in the options. See [Soil moisture skip](#soil-moisture-skip). |
 | Run history | `calendar.rain_bird_controller_run_history` | Every run of every zone as a calendar event: how long, and what started it. See [Run history](#run-history). |
 | Schedule | `calendar.rain_bird_controller_schedule` | Upcoming runs of the programs set up in the options, one event per program run. Only there once a program is set up. See [Programs](#programs). |
@@ -175,9 +174,9 @@ number of programs), with the same choices as the app:
 - **Stations**: they run one after another in station order, each for its
   zone's **Valve runtime**.
 - **Delay between stations**, in seconds.
-- **Seasonal adjustment**: scales the runtimes when the controller doesn't
-  report its own. With Automatic Seasonal Adjust on in the app it changes
-  every day, so this is an estimate; leave it at 100% if unsure.
+- **Seasonal adjustment**: scales the runtimes on the Schedule calendar and
+  for time remaining. It doesn't change the controller. Leave it at 100% if
+  unsure.
 
 A program needs at least one station and one start time. Once one is set up,
 the **Schedule** calendar shows its upcoming runs ("Program A: Normal
@@ -210,18 +209,29 @@ actions:
         {{ (state_attr('event.rain_bird_sprinkler_1_run', 'duration') / 60) | round }} min
 ```
 
-`source` is `schedule` when the run matches the controller's schedule,
-`program` for a program started from Home Assistant, and `other` for anything
-else (such as the Rain Bird app).
+`source` is `schedule` when the run matches a program or a zone time on Rain
+Bird's calendar, `program` for a program started from Home Assistant, and
+`other` for anything else (such as the Rain Bird app).
 
-### Rain Bird switches
+### Rain Bird zone switches
 
-The valves replace the core Rain Bird zone switches, so by default Rain Bird
-Extended **disables those switches** (so HomeKit and dashboards don't show every
-zone twice). To keep them, turn off **Disable the Rain Bird zone switches** in
-Rain Bird Extended's options (**Settings → Devices & services → Rain Bird
-Extended → Configure**). Switches you disabled yourself are left alone, and
-removing Rain Bird Extended re-enables the ones it disabled.
+Each zone still has the switch the Rain Bird integration created. The valve
+uses that switch: opening the valve runs Rain Bird's **Start irrigation**
+action on it, and closing the valve turns the switch off (which stops every
+zone, the same way the switch itself does). Rain delay is the Rain Bird
+**Rain delay** number.
+
+Rain Bird Extended does not disable or hide those switches. If you only want
+the valves on a dashboard, hide each Rain Bird zone switch from that dashboard.
+To hide it everywhere in the UI:
+
+1. Go to **Settings → Devices & services → Rain Bird**.
+2. Open the zone device and select the switch.
+3. Open the settings (the cog) and turn off **Enabled**.
+
+Leave the switch enabled if you still want the valve to run that zone.
+A disabled switch is not there for the start and stop actions, so the valve
+can't run or stop it. Hiding the switch on a dashboard keeps it available.
 
 The valves map directly onto HomeKit's irrigation valve characteristics
 (Active, In Use, Set Duration, Remaining Duration).
@@ -232,8 +242,8 @@ The valves map directly onto HomeKit's irrigation valve characteristics
 controllers with programs this opens a menu: **Settings**, and one entry per
 program (see [Programs](#programs)). The settings are grouped into sections: Run all zones and cycle and soak, Blowout
 sprinklers, Weather (the forecast entity and the daily check time shared by
-rain, freeze and soil moisture skip and weather adjustment), Rain skip, Freeze
-skip, Soil moisture skip and Weather adjustment. Temperatures are in your Home
+rain, freeze and soil moisture skip), Rain skip, Freeze
+skip and Soil moisture skip. Temperatures are in your Home
 Assistant unit system.
 
 ### Controller power
@@ -286,34 +296,6 @@ switch (on by default). Each day at the check time, if the sensor reads at or
 above your threshold (default 40%), it sets the controller's rain delay
 (default 1 day), never shortening a longer one. Each skip fires a
 `rainbird_extended_moisture_skip` event.
-
-### Weather adjustment
-
-On Home Assistant 2026.10 or newer, choosing a weather entity also adds a
-**Weather adjustment** switch. It **starts off**, because it changes your
-controller's settings every day. While it's on, each day at the check time it
-sets every program's seasonal adjustment from today's forecast high:
-
-| Forecast high | Seasonal adjustment |
-| --- | --- |
-| at or below the low temperature (default 60°F / 15°C) | the low percent (default 60%) |
-| between | in a straight line between, rounded to 5% |
-| at or above the high temperature (default 95°F / 35°C) | the high percent (default 150%) |
-
-For example, with the defaults a 77°F (25°C) day gets 105%. Each check fires
-a `rainbird_extended_weather_adjustment` event, and the switch's attributes
-show the last high and percent. You can still change Seasonal adjustment A, B,
-… yourself; the next check sets them again.
-
-### Seasonal adjustment
-
-Read from the controller's water budget. On Home Assistant 2026.10 and newer
-each program's seasonal adjustment is an adjustable **number**
-(`number.…_seasonal_adjustment_a`, 10–200%). Home Assistant 2026.9's Rain Bird
-library can read it but not change it, so there it's a read-only **sensor**
-(`sensor.…_seasonal_adjustment_a`); after upgrading Home Assistant the sensors
-are replaced by the numbers automatically. Controllers without water budgets
-show a single read-only sensor from the controller state, if they report it.
 
 ## Requirements
 
@@ -375,28 +357,29 @@ homekit:
 ```
 
 Changing the duration in the Home app updates the valve runtime entity, and
-the next run uses it. Use the valves (not the Rain Bird switches) in HomeKit
-so you don't get each zone twice; the switches are disabled by default.
+the next run uses it. Use the valves in HomeKit so you don't get each zone
+twice. See [Rain Bird zone switches](#rain-bird-zone-switches) if you also
+want to hide the switches.
 
 ## How time remaining is worked out
 
-- **Runs started from these valves:** start time + valve runtime.
-- **Runs started anywhere else** (a schedule, the Rain Bird app, the core
-  switch): asked from the controller each minute while a zone is running,
-  using the combined controller state command. The controller reports this
-  as seconds remaining for the active station.
-- Controllers that don't support that command (the ARC8, for example) are
-  detected once and not asked again. For them, time remaining comes from the
-  controller's schedule: a zone running during one of its scheduled runs, or
-  during a program started with a **Run program** button, ends when that run
-  should, with runtimes scaled by the program's seasonal adjustment.
-- **Anything else** (the Rain Bird app, the core switch or its
-  `start_irrigation` action, or a schedule that can't be read): an estimate
-  of the zone's **valve runtime** from when it was seen starting. Changing the
-  valve runtime during the run moves the estimate right away. If the zone is
-  still running when the estimate runs out, it shows about a minute left until
-  the zone is seen stopping. The sensor's `estimated` attribute is `true` while
-  it's showing an estimate.
+Rain Bird's zone switches only say on or off. They don't say how many seconds
+are left, so time remaining is worked out here:
+
+- **Runs started from these valves:** start time + the time you asked for.
+- **A program started with Run program**, or a zone running during a program
+  you entered in the options: the zone's slot in that program. A program's
+  seasonal adjustment scales those times.
+- **A zone time listed on Rain Bird's schedule calendar.** From Home Assistant
+  2026.11 the calendar event says how long each zone runs ("Zone 1: 10 min").
+  A zone that's on during its listed time ends when that line says. Older
+  Home Assistant versions don't include those lines.
+- **Anything else** (the Rain Bird app, or a schedule that isn't listed zone
+  by zone): an estimate of the zone's **valve runtime** from when the switch
+  turned on. Changing the valve runtime during the run moves the estimate
+  right away. If the zone is still running when the estimate runs out, it
+  shows about a minute left until the switch turns off. The sensor's
+  `estimated` attribute is `true` while it's showing an estimate.
 - **While idle:** when the last run ended (a time in the past, so HomeKit shows
   nothing left). It's kept across restarts, so it's only unknown before the
   zone's first run.
@@ -418,15 +401,15 @@ so you don't get each zone twice; the switches are disabled by default.
   so Home Assistant has to stay running until they finish. Starting another zone, a program, or
   stopping irrigation ends it, as does a zone being stopped early from the
   Rain Bird app.
-- **Estimated next run** for zones in no program, when the controller's
-  schedule can't be read and none are [set up](#programs) (the ARC8, or when
-  you water from Home Assistant automations), is the last run's
-  start plus **Run every** days, moved on by whole intervals when a day was
-  missed; set Run every to match how often the zone actually runs. Before a
-  zone's first run it counts from when the integration started.
-- **Next run** from the schedule follows the programmed start times and zone order, and skips
-  rain delay days. It doesn't account for seasonal adjustment changing how
-  long earlier zones in the same program run.
+- **Estimated next run** is the program or calendar time when one is known.
+  Otherwise it's the last run's start plus **Run every** days, moved on by
+  whole intervals when a day was missed. Set Run every to match how often the
+  zone actually runs. Before a zone's first run it counts from when the
+  integration started.
+- **Next run** from a program you entered follows the start times and zone
+  order, and skips rain delay days. The seasonal adjustment on that program
+  scales how long each zone runs. Rain Bird's own seasonal adjustment isn't
+  available to change from here.
 - **Water used** is an estimate: run time × the flow rate you enter. Use your
   water meter or a test run to find each zone's flow rate.
 - If Rain Bird reloads (for example after changing its options), Rain Bird
@@ -437,8 +420,8 @@ so you don't get each zone twice; the switches are disabled by default.
 
 Open an [issue](https://github.com/bisman-automations/ha-rainbird-extended/issues)
 and attach diagnostics: **Settings → Devices & services → Rain Bird Extended →
-⋮ → Download diagnostics**. They include your controller model and firmware and
-whether it reports remaining run time; the controller's MAC address is removed.
+⋮ → Download diagnostics**. They include which Rain Bird switches, program
+buttons and calendar were found; the controller's MAC address is removed.
 
 ### Diagnostics and debug logs
 

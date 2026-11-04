@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
-from pyrainbird.data import WaterBudget
-from pyrainbird.exceptions import RainbirdDeviceNackError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -23,14 +21,13 @@ from homeassistant.components.number import (
     SERVICE_SET_VALUE,
 )
 from homeassistant.components.valve import DOMAIN as VALVE_DOMAIN, SERVICE_OPEN_VALVE
-from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import ATTR_ENTITY_ID, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
-from .conftest import controller_state
-from .helpers import _advance, _open_options, _poll_core, _press
+from .helpers import _advance, _open_options, _poll_core, _press, zone_calendar_events
 
 VALVE = "valve.rain_bird_sprinkler_2"
 SWITCH = "switch.rain_bird_sprinkler_2"
@@ -46,61 +43,42 @@ STOP = "button.rain_bird_controller_stop_irrigation"
 PROGRAM_B = "button.rain_bird_controller_run_program_b"
 
 
-@pytest.mark.parametrize("extended_options", [{}])
-async def test_switches_disabled_by_default(
+@pytest.mark.parametrize("extended_options", [{CONF_DISABLE_RAINBIRD_SWITCHES: True}])
+async def test_rainbird_switches_are_left_alone(
     hass: HomeAssistant,
     setup_integrations: MagicMock,
     extended_entry: MockConfigEntry,
     entity_registry: er.EntityRegistry,
 ) -> None:
-    """Valves replace the core switches, which are disabled until opted out."""
+    """An old 'disable the Rain Bird switches' setting is dropped, not applied.
+
+    The switches stay enabled, including one the user disabled themselves.
+    Removing Rain Bird Extended does not re-enable anything.
+    """
+    entity_registry.async_update_entity(
+        "switch.rain_bird_sprinkler_1", disabled_by=er.RegistryEntryDisabler.USER
+    )
     switch = entity_registry.async_get(SWITCH)
-    assert switch.disabled_by is er.RegistryEntryDisabler.INTEGRATION
-    assert hass.states.get(SWITCH) is None
+    assert switch.disabled_by is None
+    assert hass.states.get(SWITCH).state == "off"
     assert hass.states.get(VALVE).state == "closed"
+    assert CONF_DISABLE_RAINBIRD_SWITCHES not in extended_entry.options
 
     result = await _open_options(hass, extended_entry.entry_id)
     assert result["type"] is FlowResultType.FORM
+    submitted = nest({CONF_STOP_ACTION: STOP_ACTION_STOP_IRRIGATION})
+    assert CONF_DISABLE_RAINBIRD_SWITCHES not in submitted
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        nest(
-            {
-                CONF_DISABLE_RAINBIRD_SWITCHES: False,
-                CONF_STOP_ACTION: STOP_ACTION_STOP_IRRIGATION,
-            }
-        ),
+        result["flow_id"], submitted
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
     assert extended_entry.options[CONF_STOP_ACTION] == STOP_ACTION_STOP_IRRIGATION
     assert entity_registry.async_get(SWITCH).disabled_by is None
-
-
-@pytest.mark.parametrize("extended_options", [{}])
-async def test_switches_restored_on_removal(
-    hass: HomeAssistant,
-    mock_rainbird: MagicMock,
-    rainbird_entry: MockConfigEntry,
-    extended_entry: MockConfigEntry,
-    entity_registry: er.EntityRegistry,
-) -> None:
-    """Removing Rain Bird Extended re-enables the switches it disabled only."""
-    assert await hass.config_entries.async_setup(rainbird_entry.entry_id)
-    await hass.async_block_till_done()
-    assert await hass.config_entries.async_setup(extended_entry.entry_id)
-    await hass.async_block_till_done()
-    assert entity_registry.async_get(SWITCH).disabled_by is not None
-    entity_registry.async_update_entity(
-        "switch.rain_bird_sprinkler_1", disabled_by=er.RegistryEntryDisabler.USER
-    )
-    await hass.config_entries.async_remove(extended_entry.entry_id)
-    await hass.async_block_till_done()
-    assert entity_registry.async_get(SWITCH).disabled_by is None
     assert (
         entity_registry.async_get("switch.rain_bird_sprinkler_1").disabled_by
         is er.RegistryEntryDisabler.USER
     )
-    await hass.config_entries.async_unload(rainbird_entry.entry_id)
 
 
 async def test_start_zone_action(
@@ -151,7 +129,7 @@ async def test_water_used_and_last_run(
 
     await _poll_core(hass, freezer)
     used = float(hass.states.get(WATER).state)
-    assert 2.0 < used < 2.2  # just over a minute
+    assert 1.8 < used < 2.4  # about a minute at 2 L/min
 
     for _ in range(4):
         await _poll_core(hass, freezer)
@@ -170,124 +148,56 @@ async def test_water_used_and_last_run(
 
 
 async def test_next_run(hass: HomeAssistant, setup_integrations: MagicMock) -> None:
-    """Zone 2 runs after zone 1 in program A, so next at 05:10 local."""
-    await hass.async_block_till_done()
+    """Zone 2 runs after zone 1 when the calendar lists those run times."""
+    events = zone_calendar_events("Zone 1: 10 min\nZone 2: 15 min")
+
+    async def fake(_core: object, _start: object, _end: object) -> list[dict[str, str]]:
+        return events
+
+    with patch(
+        "custom_components.rainbird_extended.coordinator.RainbirdCore.async_calendar_events",
+        fake,
+    ):
+        coordinator = hass.config_entries.async_entries("rainbird_extended")[
+            0
+        ].runtime_data
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
     now = dt_util.now()
     expected = now.replace(hour=5, minute=10, second=0, microsecond=0)
     if expected <= now:
         expected += timedelta(days=1)
     assert dt_util.parse_datetime(hass.states.get(NEXT_RUN).state) == expected
     assert hass.states.get(NEXT_RUN).attributes["estimated"] is False
-    # Zone 3 isn't in any program: a day after it was first needed.
+    # Zone 3 isn't listed: a day after it was first needed.
     state = hass.states.get("sensor.rain_bird_sprinkler_3_estimated_next_run")
     assert state.attributes["estimated"] is True
     estimate = dt_util.parse_datetime(state.state)
     assert timedelta(hours=23) < estimate - dt_util.utcnow() <= timedelta(days=1)
 
 
-async def test_seasonal_adjustment(
-    hass: HomeAssistant,
-    setup_integrations: MagicMock,
-    freezer: FrozenDateTimeFactory,
+async def test_no_seasonal_adjustment_entity(
+    hass: HomeAssistant, setup_integrations: MagicMock
 ) -> None:
-    """One adjustable seasonal adjustment per program, re-read every 30 min."""
-    controller = setup_integrations
-    state = hass.states.get(SEASONAL_A)
-    assert state.state == "100"
-    assert state.attributes["unit_of_measurement"] == "%"
-    assert state.attributes["min"] == 10
-    assert state.attributes["max"] == 200
-    assert hass.states.get("number.rain_bird_controller_seasonal_adjustment_c")
+    """Seasonal adjustment isn't created: Rain Bird has no public way to set it."""
+    assert hass.states.get(SEASONAL_A) is None
     assert hass.states.get(SEASONAL_SENSOR) is None
-    # Idle: the controller state isn't asked for, only the water budgets.
-    controller.get_combined_controller_state.assert_not_awaited()
-
-    await hass.services.async_call(
-        NUMBER_DOMAIN,
-        SERVICE_SET_VALUE,
-        {ATTR_ENTITY_ID: SEASONAL_A, ATTR_VALUE: 80},
-        blocking=True,
-    )
-    controller.set_water_budget.assert_awaited_once_with(0, 80)
-    assert hass.states.get(SEASONAL_A).state == "80"
-
-    # Changed in the Rain Bird app: picked up on the next 30 minute read.
-    controller.water_budget.side_effect = lambda key: WaterBudget(key, 120)
-    await _poll_core(hass, freezer)
-    assert hass.states.get(SEASONAL_A).state == "80"
-    await _advance(hass, freezer, timedelta(minutes=30))
-    await _poll_core(hass, freezer)
-    assert hass.states.get(SEASONAL_A).state == "120"
-
-
-async def test_seasonal_adjustment_read_only(
-    hass: HomeAssistant,
-    controller: MagicMock,
-    mock_rainbird: MagicMock,
-    rainbird_entry: MockConfigEntry,
-    extended_entry: MockConfigEntry,
-) -> None:
-    """With pyrainbird 6.5 (no set_water_budget) it's shown read-only."""
-    del controller.set_water_budget
-    assert await hass.config_entries.async_setup(rainbird_entry.entry_id)
-    await hass.async_block_till_done()
-    assert await hass.config_entries.async_setup(extended_entry.entry_id)
-    await hass.async_block_till_done()
-    assert hass.states.get(SEASONAL_A) is None
-    state = hass.states.get("sensor.rain_bird_controller_seasonal_adjustment_a")
-    assert state.state == "100"
-    assert state.attributes["unit_of_measurement"] == "%"
-    await hass.config_entries.async_unload(extended_entry.entry_id)
-    await hass.config_entries.async_unload(rainbird_entry.entry_id)
-
-
-async def test_seasonal_adjustment_without_water_budget(
-    hass: HomeAssistant,
-    controller: MagicMock,
-    mock_rainbird: MagicMock,
-    rainbird_entry: MockConfigEntry,
-    extended_entry: MockConfigEntry,
-) -> None:
-    """Controllers that reject water budgets fall back to a read-only sensor."""
-    controller.water_budget.side_effect = RainbirdDeviceNackError()
-    controller.get_combined_controller_state.return_value = controller_state(
-        seasonal=90
-    )
-    assert await hass.config_entries.async_setup(rainbird_entry.entry_id)
-    await hass.async_block_till_done()
-    assert await hass.config_entries.async_setup(extended_entry.entry_id)
-    await hass.async_block_till_done()
-    assert hass.states.get(SEASONAL_A) is None
-    assert hass.states.get(SEASONAL_SENSOR).state == "90"
-    await hass.config_entries.async_unload(extended_entry.entry_id)
-    await hass.config_entries.async_unload(rainbird_entry.entry_id)
-
-
-@pytest.mark.parametrize("active_zones", [{2}])
-async def test_seasonal_adjustment_unsupported(
-    hass: HomeAssistant,
-    controller: MagicMock,
-    mock_rainbird: MagicMock,
-    rainbird_entry: MockConfigEntry,
-    extended_entry: MockConfigEntry,
-) -> None:
-    """Controllers that report neither show the sensor as unavailable."""
-    controller.water_budget.side_effect = RainbirdDeviceNackError()
-    controller.get_combined_controller_state.side_effect = RainbirdDeviceNackError()
-    assert await hass.config_entries.async_setup(rainbird_entry.entry_id)
-    await hass.async_block_till_done()
-    assert await hass.config_entries.async_setup(extended_entry.entry_id)
-    await hass.async_block_till_done()
-    assert hass.states.get(SEASONAL_SENSOR).state == STATE_UNAVAILABLE
-    await hass.config_entries.async_unload(extended_entry.entry_id)
-    await hass.config_entries.async_unload(rainbird_entry.entry_id)
+    assert hass.states.get("number.rain_bird_controller_seasonal_adjustment_c") is None
+    setup_integrations.get_combined_controller_state.assert_not_awaited()
+    setup_integrations.water_budget.assert_not_awaited()
+    setup_integrations.set_water_budget.assert_not_awaited()
 
 
 async def test_run_program_and_stop(
     hass: HomeAssistant, setup_integrations: MagicMock
 ) -> None:
     """Program buttons start the program; stop stops everything."""
-    assert hass.states.get("button.rain_bird_controller_run_program_a")
+    if hass.states.get("button.rain_bird_controller_run_program_a") is None:
+        # Home Assistant 2026.9 has no Run program button to press.
+        await _press(hass, STOP)
+        setup_integrations.stop_irrigation.assert_awaited_once()
+        return
     assert hass.states.get("button.rain_bird_controller_run_program_c")
     assert hass.states.get("button.rain_bird_controller_run_program_d") is None
     await _press(hass, PROGRAM_B)

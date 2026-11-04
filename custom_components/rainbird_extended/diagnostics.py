@@ -16,10 +16,14 @@ TO_REDACT = {"unique_id"}
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: RainbirdExtendedConfigEntry
 ) -> dict[str, Any]:
-    """Return diagnostics for a config entry."""
+    """Return diagnostics for a config entry.
+
+    Only Rain Bird's public entities and this integration's own state. The
+    core config entry's runtime data is not read.
+    """
     coordinator = entry.runtime_data
     rainbird_entry = coordinator.rainbird_entry
-    model = getattr(coordinator.rainbird_data, "model_info", None)
+    core = coordinator.core
     end_times = coordinator.data or {}
     zones = sorted(coordinator.zones)
 
@@ -33,33 +37,23 @@ async def async_get_config_entry_diagnostics(
             },
             TO_REDACT,
         ),
-        "controller": {
-            "model": model.model_name if model else None,
-            "model_code": model.model_code if model else None,
-            "firmware": f"{model.major}.{model.minor}" if model else None,
-            # None = not asked yet,
-            # False = controller does not report remaining run time.
-            "supports_remaining_runtime": coordinator.supports_controller_state,
-            "seasonal_adjust": (
-                coordinator.controller_state.seasonal_adjust
-                if coordinator.controller_state
-                else None
-            ),
-            "max_programs": coordinator.max_programs,
-            "supports_water_budget": coordinator.supports_water_budget,
-            "can_set_water_budget": coordinator.can_set_water_budget,
-            "water_budgets": {
-                str(key): value
-                for key, value in sorted(coordinator.water_budgets.items())
+        "core": {
+            "reachable": core.reachable(),
+            "rain_delay_days": core.rain_delay_days(),
+            "pending_rain_delay_days": coordinator._pending_rain_delay,
+            "rain_sensor": core.rain_sensor_on(),
+            "zone_switches": {
+                str(zone): entity_id
+                for zone, entity_id in sorted(core.zone_switches().items())
             },
+            "program_buttons": {
+                str(program): entity_id
+                for program, entity_id in sorted(core.program_buttons().items())
+            },
+            "calendar": core.calendar_entity_id(),
+            "calendar_zone_runs": len(coordinator._calendar_runs),
         },
         "options": dict(entry.options),
-        "schedule_loaded": bool(coordinator.schedule and coordinator.schedule.data),
-        "core_coordinator": {
-            "last_update_success": coordinator.rainbird.last_update_success,
-            "rain": getattr(coordinator.rainbird.data, "rain", None),
-            "rain_delay": getattr(coordinator.rainbird.data, "rain_delay", None),
-        },
         "zones": zones,
         "linked_zones": coordinator.linked_zones,
         "active_zones": sorted(coordinator.active_zones),

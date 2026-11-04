@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -14,7 +14,6 @@ from custom_components.rainbird_extended.const import (
     CONF_WEATHER_ENTITY,
     DEFAULT_STOP_ACTION,
 )
-from custom_components.rainbird_extended.coordinator import RainbirdExtendedCoordinator
 from custom_components.rainbird_extended.panel import (
     _async_add_forecasts,
     _panel_config,
@@ -300,22 +299,14 @@ def test_program_summaries_show_configuration_and_next_run() -> None:
     ]
 
 
-async def test_set_rain_delay_can_wait_for_controller_refresh() -> None:
-    """The dashboard waits for Rain Bird to report its updated delay."""
-    controller = MagicMock()
-    refresh = AsyncMock()
-    coordinator = SimpleNamespace(
-        controller=controller,
-        _async_command=AsyncMock(),
-        rainbird=SimpleNamespace(async_request_refresh=refresh),
-    )
-
-    await RainbirdExtendedCoordinator.async_set_rain_delay(
-        coordinator, 4, wait_for_refresh=True
-    )
-
-    coordinator._async_command.assert_awaited_once_with(controller.set_rain_delay, 4)
-    refresh.assert_awaited_once()
+async def test_set_rain_delay_uses_the_rain_delay_number(
+    hass: HomeAssistant, setup_integrations: MagicMock
+) -> None:
+    """The dashboard sets Rain Bird's Rain delay number and remembers it."""
+    entry = hass.config_entries.async_entries("rainbird_extended")[0]
+    await entry.runtime_data.async_set_rain_delay(4, wait_for_refresh=True)
+    setup_integrations.set_rain_delay.assert_awaited_with(4)
+    assert entry.runtime_data.rain_delay_days == 4
 
 
 def test_program_summaries_hide_next_run_while_turned_off() -> None:

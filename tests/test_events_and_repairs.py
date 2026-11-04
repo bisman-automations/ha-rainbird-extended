@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
-from pyrainbird.exceptions import RainbirdDeviceNackError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.rainbird_extended.const import CONF_RAINBIRD_ENTRY_ID, DOMAIN
@@ -18,7 +17,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
-from .helpers import _local, _poll_core, _setup, _unload
+from .helpers import _local, _poll_core, _setup, _unload, zone_calendar_events
 
 VALVE = "valve.rain_bird_sprinkler_2"
 RUN_EVENT = "event.rain_bird_sprinkler_2_run"
@@ -74,14 +73,19 @@ async def test_scheduled_run_source(
 ) -> None:
     """A run during the zone's scheduled time is from the schedule."""
     freezer.move_to(_local(5, 11))
-    controller.get_combined_controller_state.side_effect = RainbirdDeviceNackError()
-    await _setup(hass, rainbird_entry, extended_entry)
-    await hass.config_entries.async_entries("rainbird")[
-        0
-    ].runtime_data.schedule_coordinator.async_refresh()
-    active_zones.add(2)
-    await _poll_core(hass, freezer)
-    assert hass.states.get(RUN_EVENT).attributes["source"] == "schedule"
+    events = zone_calendar_events("Zone 1: 10 min\nZone 2: 15 min")
+
+    async def fake(_core: object, _start: object, _end: object) -> list[dict[str, str]]:
+        return events
+
+    with patch(
+        "custom_components.rainbird_extended.coordinator.RainbirdCore.async_calendar_events",
+        fake,
+    ):
+        await _setup(hass, rainbird_entry, extended_entry)
+        active_zones.add(2)
+        await _poll_core(hass, freezer)
+        assert hass.states.get(RUN_EVENT).attributes["source"] == "schedule"
     await _unload(hass, rainbird_entry, extended_entry)
 
 

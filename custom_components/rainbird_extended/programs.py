@@ -1,9 +1,12 @@
 """Programs set up in the options, for controllers whose schedule can't be read.
 
 Some controllers (the ARC8, for one) don't share their programs over the local
-API. Entering them here, as they're set in the Rain Bird app, gives the same
-schedule the controller would report: upcoming runs, each zone's next run and
-when a scheduled run ends.
+API, and Rain Bird's calendar doesn't list each zone on older Home Assistant
+versions. Entering them here, as they're set in the Rain Bird app, gives
+upcoming runs, each zone's next run and when a scheduled run ends.
+
+``pyrainbird`` is used only to turn those saved programs into a recurrence.
+Nothing here opens a connection or uses Rain Bird's controller client.
 """
 
 from __future__ import annotations

@@ -1,4 +1,9 @@
-"""Coordinator tracking per-zone run times for Rain Bird Extended."""
+"""Coordinator tracking per-zone run times for Rain Bird Extended.
+
+Commands and readings go through :class:`RainbirdCore`: Rain Bird's entities
+and services. Optimistic end times live on this coordinator and on our own
+entities. Nothing here writes Rain Bird's coordinator data or entity registry.
+"""
 
 from __future__ import annotations
 
@@ -8,26 +13,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
 import math
-from typing import TYPE_CHECKING, Any
 
 from ical.iter import MergedIterable, SortableItem
 from ical.timespan import Timespan
-from pyrainbird.data import ControllerState, Program, Schedule
-from pyrainbird.exceptions import (
-    RainbirdApiException,
-    RainbirdCodingException,
-    RainbirdDeviceBusyException,
-    RainbirdDeviceNackError,
-)
-from pyrainbird.timeline import (
-    ProgramEvent,
-    ProgramId,
-    ProgramTimeline,
-    create_recurrence,
-)
+from pyrainbird.timeline import ProgramEvent, ProgramTimeline
 
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.const import STATE_OFF
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_STATE_CHANGED, STATE_OFF
 from homeassistant.core import (
     CALLBACK_TYPE,
     Event,
@@ -36,12 +28,13 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import (
     async_track_point_in_utc_time,
     async_track_state_change_event,
 )
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -54,7 +47,6 @@ from .const import (
     CONF_RUN_ALL_ZONES,
     CONF_SOAK_MINUTES,
     CONFIRM_DELAY,
-    CONTROLLER_STATE_IDLE_REFRESH,
     DEFAULT_BLOWOUT_CYCLES,
     DEFAULT_BLOWOUT_ON_MINUTES,
     DEFAULT_BLOWOUT_REST_SECONDS,
@@ -62,21 +54,12 @@ from .const import (
     DOMAIN,
     EARLY_STOP_MARGIN,
     END_TIME_TOLERANCE,
-    LCR_BUDGET,
-    RAINBIRD_ATTR_DURATION,
-    RAINBIRD_DEFAULT_DURATION_MINUTES,
     SCHEDULE_TOLERANCE,
     START_GRACE_PERIOD,
-    TIMEOUT_SECONDS,
 )
+from .core_api import RainbirdCore, ZonePattern, calendar_zone_runs
 from .programs import ConfiguredProgram, parse_programs
 from .sequence import Step, plan_blowout, plan_steps
-
-if TYPE_CHECKING:
-    from homeassistant.components.rainbird.coordinator import (
-        RainbirdScheduleUpdateCoordinator,
-        RainbirdUpdateCoordinator,
-    )
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -121,6 +104,10 @@ type RunListener = Callable[[str, ZoneRun], None]
 # Time remaining for a zone still running past its estimated end.
 OVERRUN_ESTIMATE = timedelta(minutes=1)
 
+# While a zone is running, re-read the switches about as often as Rain Bird
+# polls. A switch that stays on does not fire a state change.
+RUNNING_REFRESH = timedelta(seconds=60)
+
 # Shortest run recorded (the controller's states are only seen once a minute).
 MIN_RUN = timedelta(seconds=1)
 
@@ -131,10 +118,11 @@ type ZoneEndTimes = dict[int, datetime | None]
 class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
     """Compute when each running zone will finish, and track runs.
 
-    This coordinator does not poll on its own schedule. It refreshes whenever the
-    core Rain Bird coordinator refreshes (about once a minute) and after a zone is
-    started from here. It talks to the controller while a zone is running, and
-    every 30 minutes to keep the seasonal adjustment current.
+    This coordinator does not poll the controller. It refreshes when a Rain Bird
+    entity changes state (the zone switches update about once a minute) and
+    after a command from here. End times come from a run started here, from
+    programs entered in the options, from zone run times on Rain Bird's
+    schedule calendar, or from the valve runtime.
     """
 
     config_entry: ConfigEntry
@@ -157,30 +145,8 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             ),
         )
         self.rainbird_entry = rainbird_entry
-        rainbird_data = rainbird_entry.runtime_data
-        # Kept to notice when the core entry reloads and replaces it.
-        self.rainbird_data = rainbird_data
-        self.rainbird: RainbirdUpdateCoordinator = rainbird_data.coordinator
-        self.schedule: RainbirdScheduleUpdateCoordinator | None = getattr(
-            rainbird_data, "schedule_coordinator", None
-        )
-        self.controller = rainbird_data.controller
-        model = getattr(rainbird_data, "model_info", None)
-        # Works with pyrainbird 6.5 (Home Assistant 2026.9) and newer.
-        info = model.model_info if model else None
-        self.max_programs: int = info.max_programs if info else 0
-        self.supports_water_budget: bool = bool(info and info.supports_water_budget)
-        # Program-based controllers have a seasonal adjust per program; the
-        # others (LCR: ESP-RZXe, ST8) have one for the whole controller.
-        self.program_based: bool = self.max_programs > 0
-        self.max_seasonal_adjust: int = getattr(
-            getattr(info, "limits", None), "max_seasonal_adjust", 200
-        )
-        # Setting it needs pyrainbird 6.6 or newer.
-        self.can_set_water_budget: bool = hasattr(self.controller, "set_water_budget")
-        # Seasonal adjust (%) by program index, or LCR_BUDGET for LCR controllers.
-        self.water_budgets: dict[int, int] = {}
-        self._water_budgets_at: datetime | None = None
+        # Public entities and services only. Never the core runtime data.
+        self.core = RainbirdCore(hass, rainbird_entry)
         # (program index, local start) of a program started from here.
         self._manual_program: tuple[int, datetime] | None = None
         # Programs set up in the options; when there are any they're used
@@ -190,15 +156,12 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         )
         # On/off entity that says whether the controller is turned on.
         self.power_entity: str | None = config_entry.options.get(CONF_POWER_ENTITY)
-        # Rain Bird controllers handle one request at a time. Share the core
-        # integration's lock when it has one so we never poll concurrently.
-        self._device_lock: asyncio.Lock = (
-            getattr(self.rainbird, "_device_lock", None) or asyncio.Lock()
-        )
-        # None = not probed yet, False = controller NACKs the request.
-        self._supports_controller_state: bool | None = None
-        self.controller_state: ControllerState | None = None
-        self._controller_state_at: datetime | None = None
+        # Days we just set, until the Rain delay number catches up.
+        self._pending_rain_delay: int | None = None
+        # Zone windows and program patterns from the schedule calendar.
+        self._calendar_runs: list[tuple[int, datetime, datetime, int | None]] = []
+        self._program_patterns: dict[int, list[ZonePattern]] = {}
+        self._logged_calendar_without_zones = False
         # Runs started from Home Assistant, by zone.
         self._started: dict[int, _LocalRun] = {}
         # Zones whose end time is only an estimate from their valve runtime.
@@ -230,23 +193,37 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._paused_steps: list[Step] | None = None
         self._paused_source = SOURCE_RUN_ALL_ZONES
         self._sequence_unsub: CALLBACK_TYPE | None = None
+        # Re-read the switches while a run or sequence is in progress.
+        self._running_unsub: CALLBACK_TYPE | None = None
         # zone -> callbacks for run started/finished.
         self._run_listeners: dict[int, list[RunListener]] = {}
 
     @property
     def rainbird_unique_id(self) -> str | None:
         """Unique id of the core Rain Bird config entry (formatted MAC)."""
-        return self.rainbird.unique_id
+        return self.rainbird_entry.unique_id
+
+    @property
+    def max_programs(self) -> int:
+        """How many programs the options can offer.
+
+        Rain Bird's Run program buttons (Home Assistant 2026.10 and newer)
+        say exactly. Otherwise a schedule calendar means the controller has
+        programs, and the options offer A-D. No calendar means no programs.
+        """
+        from .config_flow import MAX_PROGRAMS  # noqa: PLC0415
+
+        buttons = self.core.program_buttons()
+        if buttons:
+            return min(max(buttons) + 1, MAX_PROGRAMS)
+        if self.core.calendar_entity_id() is not None:
+            return MAX_PROGRAMS
+        return 0
 
     @property
     def zones(self) -> set[int]:
-        """All zones known to the controller."""
-        return set(self.rainbird.data.zones) if self.rainbird.data else set()
-
-    @property
-    def supports_controller_state(self) -> bool | None:
-        """Whether the controller reports remaining run time (None = unknown)."""
-        return self._supports_controller_state
+        """Zones Rain Bird has a switch for."""
+        return self.core.zones()
 
     @property
     def local_runs(self) -> dict[int, _LocalRun]:
@@ -287,16 +264,22 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
 
     @property
     def active_zones(self) -> set[int]:
-        """Zones the controller reports as running."""
-        return set(self.rainbird.data.active_zones) if self.rainbird.data else set()
+        """Zones running: the Rain Bird switches, plus a run we just started.
+
+        The switch lags the command by a few seconds. The valve and Irrigating
+        sensor follow this set, which stays on our coordinator.
+        """
+        zones = self.core.active_zones()
+        now = dt_util.utcnow()
+        for zone, run in self._started.items():
+            if now < run.end:
+                zones.add(zone)
+        return zones
 
     @property
     def default_runtime(self) -> int:
-        """Default runtime in seconds, from the core integration's options."""
-        minutes = self.rainbird_entry.options.get(
-            RAINBIRD_ATTR_DURATION, RAINBIRD_DEFAULT_DURATION_MINUTES
-        )
-        return int(minutes) * 60
+        """Default runtime in seconds, from Rain Bird's duration option."""
+        return self.core.default_duration_minutes * 60
 
     def runtime_for(self, zone: int) -> int:
         """Return the configured runtime for a zone in seconds."""
@@ -304,25 +287,15 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
 
     @callback
     def async_start(self) -> None:
-        """Follow the core coordinators so our data refreshes with them."""
+        """Refresh when Rain Bird's entities change. Don't subscribe to its coordinators."""
         self.config_entry.async_on_unload(
-            self.rainbird.async_add_listener(self._handle_rainbird_update)
+            self.hass.bus.async_listen(EVENT_STATE_CHANGED, self._handle_core_state)
         )
-        if self.schedule is not None and self.max_programs:
-            # Listening also makes the core coordinator poll the schedule.
-            self.config_entry.async_on_unload(
-                self.schedule.async_add_listener(self.async_update_listeners)
+        self.config_entry.async_on_unload(
+            self.hass.bus.async_listen(
+                er.EVENT_ENTITY_REGISTRY_UPDATED, self._handle_registry
             )
-            if (load := getattr(self.schedule, "async_load", None)) is not None:
-                # Home Assistant 2026.11+: loads the schedule once, shared
-                # with Rain Bird's own calendar and next-run sensors.
-                load()
-            elif self.schedule.data is None:
-                self.config_entry.async_create_background_task(
-                    self.hass,
-                    self.schedule.async_request_refresh(),
-                    f"{DOMAIN} schedule",
-                )
+        )
         if self.power_entity:
             # Turning the controller off or on changes what's scheduled.
             self.config_entry.async_on_unload(
@@ -331,6 +304,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                 )
             )
         self.config_entry.async_on_unload(self._cancel_sequence)
+        self.config_entry.async_on_unload(self._cancel_running_refresh)
 
     @callback
     def _handle_power_change(self, _event: Event[EventStateChangedData]) -> None:
@@ -356,110 +330,74 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         return self.turned_off_since is not None
 
     @callback
-    def _handle_rainbird_update(self) -> None:
-        """Refresh our end times whenever the core integration refreshes."""
-        self.config_entry.async_create_background_task(
-            self.hass, self.async_request_refresh(), f"{DOMAIN} refresh"
-        )
+    def _handle_core_state(self, event: Event[EventStateChangedData]) -> None:
+        """Refresh when a Rain Bird entity we watch changes."""
+        if event.data["entity_id"] in self.core.watched_entity_ids():
+            self.config_entry.async_create_background_task(
+                self.hass, self.async_request_refresh(), f"{DOMAIN} refresh"
+            )
+
+    @callback
+    def _handle_registry(self, event: Event[er.EventEntityRegistryUpdatedData]) -> None:
+        """Pick up a Rain Bird switch that was enabled or added."""
+        if event.data["action"] not in ("create", "update"):
+            return
+        if event.data["entity_id"] in self.core.watched_entity_ids():
+            self.config_entry.async_create_background_task(
+                self.hass, self.async_request_refresh(), f"{DOMAIN} refresh"
+            )
 
     async def _async_update_data(self) -> ZoneEndTimes:
         """Work out the expected end time for each running zone."""
-        active = self.active_zones
-        now = dt_util.utcnow()
-        if self.supports_water_budget and (
-            self._water_budgets_at is None
-            or now - self._water_budgets_at > CONTROLLER_STATE_IDLE_REFRESH
-        ):
-            await self._async_fetch_water_budgets()
-        controller_state: ControllerState | None = None
-        if self._supports_controller_state is not False:
-            if active:
-                controller_state = await self._async_fetch_controller_state()
-            elif not self.supports_water_budget and (
-                self._controller_state_at is None
-                or now - self._controller_state_at > CONTROLLER_STATE_IDLE_REFRESH
-            ):
-                # Only for the seasonal adjustment; never fail the update.
-                try:
-                    await self._async_fetch_controller_state()
-                except UpdateFailed as err:
-                    _LOGGER.debug("Could not read controller state: %s", err)
-        end_times = self._compute_end_times(active, controller_state)
+        await self._async_refresh_calendar()
+        # Switches only. A run we just started is in ``_started`` until the
+        # switch agrees, and is not treated as confirmation of itself.
+        reported = self.core.active_zones()
+        end_times = self._compute_end_times(reported)
         self._track_runs(end_times)
+        self._schedule_running_refresh(bool(end_times) or self._sequence_active)
         return end_times
 
-    @property
-    def water_budget_keys(self) -> list[int]:
-        """Program indexes with their own seasonal adjust (LCR: one for all)."""
-        if self.program_based and self.max_programs:
-            return list(range(self.max_programs))
-        return [LCR_BUDGET]
-
-    async def _async_fetch_water_budgets(self) -> None:
-        """Read each program's seasonal adjust; never fails the update."""
-        self._water_budgets_at = dt_util.utcnow()
-        for key in self.water_budget_keys:
-            try:
-                async with self._device_lock, asyncio.timeout(TIMEOUT_SECONDS):
-                    budget = await self.controller.water_budget(key)
-            except (RainbirdDeviceNackError, RainbirdCodingException) as err:
-                _LOGGER.info("Controller does not report seasonal adjust: %s", err)
-                self.supports_water_budget = False
-                self.water_budgets.clear()
-                return
-            except (RainbirdApiException, TimeoutError, KeyError, ValueError) as err:
-                _LOGGER.debug("Could not read seasonal adjust: %s", err)
-                self._water_budgets_at = None
-                return
-            self.water_budgets[key] = int(budget.adjust)
-
-    async def async_set_water_budget(self, key: int, percent: int) -> None:
-        """Set a program's seasonal adjust (LCR: the controller's)."""
-        await self._async_command(self.controller.set_water_budget, key, percent)
-        self.water_budgets[key] = percent
-        self.async_update_listeners()
-
-    async def _async_fetch_controller_state(self) -> ControllerState | None:
-        """Ask the controller how long the running zone has left."""
-        try:
-            async with self._device_lock, asyncio.timeout(TIMEOUT_SECONDS):
-                state = await self.controller.get_combined_controller_state()
-        except RainbirdDeviceBusyException:
-            _LOGGER.debug("Controller busy; keeping previous end times")
-            return None
-        except RainbirdDeviceNackError, RainbirdCodingException, KeyError, ValueError:
-            # Older controllers don't implement this command; fall back to the
-            # end times we track for runs started from Home Assistant.
+    async def _async_refresh_calendar(self) -> None:
+        """Read Rain Bird's schedule calendar, when it has one."""
+        if self.programs or self.core.calendar_entity_id() is None:
+            if self.programs:
+                self._calendar_runs = []
+                self._program_patterns = {}
+            return
+        now = dt_util.now()
+        events = await self.core.async_calendar_events(
+            now - timedelta(hours=6), now + timedelta(days=31)
+        )
+        if events is None:
+            return
+        runs, patterns = calendar_zone_runs(events)
+        self._calendar_runs = runs
+        self._program_patterns = patterns
+        if events and not runs and not self._logged_calendar_without_zones:
+            self._logged_calendar_without_zones = True
             _LOGGER.info(
-                "Controller does not report remaining run time; time remaining "
-                "is only known for runs started from Home Assistant"
+                "Rain Bird's schedule calendar doesn't list zone run times, "
+                "so each zone's next run uses programs from the options or "
+                "Run every. Zone run times are included on the calendar in "
+                "Home Assistant 2026.11 and newer"
             )
-            self._supports_controller_state = False
-            return None
-        except TimeoutError as err:
-            raise UpdateFailed("Timed out talking to Rain Bird controller") from err
-        except RainbirdApiException as err:
-            raise UpdateFailed(f"Rain Bird controller error: {err}") from err
-        self._supports_controller_state = True
-        self.controller_state = state
-        self._controller_state_at = dt_util.utcnow()
-        return state
 
-    def _compute_end_times(
-        self, active: set[int], controller_state: ControllerState | None
-    ) -> ZoneEndTimes:
-        """Combine controller-reported and locally tracked end times."""
+    def _compute_end_times(self, active: set[int]) -> ZoneEndTimes:
+        """Combine locally tracked end times with what the switches report.
+
+        ``active`` is zones whose Rain Bird switch is on. It is not our
+        optimistic set: a switch has to actually be on before a run counts
+        as confirmed.
+        """
         now = dt_util.utcnow()
         previous = self.data or {}
 
         # Forget runs that have stopped. A freshly started run gets a grace
-        # period because the controller is slow to report it as active, but
-        # once it has been seen running, going idle means it is finished.
+        # period because the switch is slow to turn on, but once it has been
+        # seen on, turning off means the run is finished.
         for zone, run in list(self._started.items()):
             if zone in active:
-                # Our own optimistic update marks the zone active immediately,
-                # so only trust "active" once the controller has had time to
-                # report it.
                 if now - run.started_at > CONFIRM_DELAY:
                     run.seen_active = True
             elif run.seen_active or now - run.started_at > START_GRACE_PERIOD:
@@ -468,50 +406,32 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                     _LOGGER.debug("Zone %s stopped early; ending run all zones", zone)
                     self._cancel_sequence()
 
-        reported: dict[int, datetime] = {}
-        if controller_state is not None and controller_state.remaining_runtime > 0:
-            zone = controller_state.active_station
-            if zone not in active and len(active) == 1:
-                zone = next(iter(active))
-            if zone in active:
-                reported[zone] = now + timedelta(
-                    seconds=controller_state.remaining_runtime
-                )
-
         self.estimated_zones = set()
         return {
-            zone: self._end_time(
-                zone,
-                reported.get(zone),
-                zone in active,
-                controller_state is None,
-                previous.get(zone),
-                now=now,
-            )
+            zone: self._end_time(zone, zone in active, previous.get(zone), now=now)
             for zone in active | set(self._started)
         }
 
     def _end_time(
         self,
         zone: int,
-        reported: datetime | None,
         active: bool,
-        no_controller_state: bool,
         previous: datetime | None,
         *,
         now: datetime,
     ) -> datetime | None:
-        """Pick the best known end time for one zone."""
-        end = reported
-        if end is None and zone in self._started:
-            end = self._started[zone].end
+        """Pick the best known end time for one zone.
+
+        Rain Bird doesn't publish remaining run time on any entity, so a run
+        we didn't start is the schedule when we can see it, otherwise the
+        valve runtime.
+        """
+        end = self._started[zone].end if zone in self._started else None
         if end is None and active:
-            # The controller didn't say; work it out from the schedule.
             end = self.scheduled_end(zone)
-        if end is None and active and reported is None:
-            # Started some other way (the Rain Bird app, the core switch or
-            # its start_irrigation action): assume it runs for its valve
-            # runtime from when it was seen starting.
+        if end is None and active:
+            # Started some other way (the Rain Bird app, or its own switch):
+            # assume it runs for its valve runtime from when it was seen.
             run = self.last_runs.get(zone)
             start = run.start if run is not None and run.end is None else now
             estimate = start + timedelta(seconds=self.runtime_for(zone))
@@ -521,9 +441,6 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                 estimate = now + OVERRUN_ESTIMATE
             self.estimated_zones.add(zone)
             end = estimate
-        if end is None and no_controller_state:
-            # Controller busy or unsupported this round: keep what we had.
-            end = previous
         if (
             end is not None
             and previous is not None
@@ -544,17 +461,33 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                     # between, it ran until then rather than until now. An
                     # expected end from before the run started is stale (for
                     # example a schedule slot it started late for): ignore it.
+                    # The switch can stay on a few seconds past that end; the
+                    # recorded finish is the expected end, not the late poll.
                     run = self.last_runs.get(zone)
                     prev_end = self._prev_end_times.get(zone)
+                    finished = now
                     if (
                         prev_end is not None
                         and prev_end < now
                         and (run is None or prev_end > run.start)
                     ):
-                        until = max(prev_end, self._last_tick)
+                        finished = prev_end
+                        until = (
+                            prev_end if self._last_tick <= prev_end else self._last_tick
+                        )
                     if run is not None and run.end is None:
-                        run.end = max(until, run.start + MIN_RUN)
+                        run.end = max(finished, run.start + MIN_RUN)
                         self._fire_run_event(zone, EVENT_FINISHED, run)
+                else:
+                    # A run we started has a known end. The zone switch stays
+                    # on for a few seconds after that, so don't count water
+                    # past the end until it's clearly still running.
+                    local = self._started.get(zone)
+                    if (
+                        local is not None
+                        and local.end < now < local.end + START_GRACE_PERIOD
+                    ):
+                        until = max(local.end, self._last_tick)
                 self.run_seconds[zone] = (
                     self.run_seconds.get(zone, 0.0)
                     + (until - self._last_tick).total_seconds()
@@ -590,31 +523,30 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             except Exception:
                 _LOGGER.exception("Error handling %s run of zone %s", event, zone)
 
-    @property
-    def _schedule(self) -> Schedule | None:
-        if self.schedule is None or not isinstance(self.schedule.data, Schedule):
-            return None
-        return self.schedule.data
+    def _budget_scale(self, configured: ConfiguredProgram) -> float:
+        """How the program's own seasonal adjust stretches its runtimes.
 
-    def _budget_scale(
-        self, program: int, configured: ConfiguredProgram | None = None
-    ) -> float:
-        """How seasonal adjust stretches a program's runtimes (1.0 = as set).
-
-        The controller's value when it reports one, else the program's setting.
+        The controller's seasonal adjustment isn't available through Rain
+        Bird's entities or services, so only the value entered with the
+        program is used, and only for that program.
         """
-        percent = self.water_budgets.get(program, self.water_budgets.get(LCR_BUDGET))
-        if percent is None and configured is not None:
-            percent = configured.seasonal_adjust
-        return (percent or 100) / 100
+        return (configured.seasonal_adjust or 100) / 100
 
     @property
     def rain_delay_days(self) -> int:
-        """Days the controller's rain delay has left."""
-        try:
-            return int(getattr(self.rainbird.data, "rain_delay", 0) or 0)
-        except TypeError, ValueError:
-            return 0
+        """Days of rain delay still set.
+
+        A value just sent from here wins until the Rain delay number reports
+        it. Rain Bird updates that number on its next poll.
+        """
+        pending = self._pending_rain_delay
+        reported = self.core.rain_delay_days()
+        if pending is None:
+            return reported
+        if reported == pending:
+            self._pending_rain_delay = None
+            return reported
+        return pending
 
     def _configured_slot(
         self, program: ConfiguredProgram, zone: int
@@ -624,7 +556,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         Its zones run one after another, in zone order, each for its valve
         runtime scaled by seasonal adjust, with the station delay between them.
         """
-        scale = self._budget_scale(program.program, program)
+        scale = self._budget_scale(program)
         offset = timedelta()
         for program_zone in program.zones:
             duration = timedelta(seconds=self.runtime_for(program_zone) * scale)
@@ -639,14 +571,14 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         return last[0] + last[1] if last else timedelta()
 
     def _slot(self, index: int, zone: int) -> tuple[timedelta, timedelta] | None:
-        """A zone's slot in a program, from the options or the controller."""
+        """A zone's slot in a program, from the options or the calendar."""
         if self.programs:
             configured = next((p for p in self.programs if p.program == index), None)
             return self._configured_slot(configured, zone) if configured else None
-        if (schedule := self._schedule) is None:
-            return None
-        program = next((p for p in schedule.programs if p.program == index), None)
-        return self._program_slot(program, zone) if program else None
+        for program_zone, offset, duration in self._program_patterns.get(index, []):
+            if program_zone == zone and duration:
+                return offset, duration
+        return None
 
     def program_timeline(self, now: datetime) -> ProgramTimeline | None:
         """Every run of the programs set up in the options, whole programs."""
@@ -660,84 +592,61 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         ]
         return ProgramTimeline(MergedIterable(iters)) if iters else None
 
-    def _program_slot(
-        self, program: Program, zone: int
-    ) -> tuple[timedelta, timedelta] | None:
-        """Offset from the program start and duration of a zone's run in it.
-
-        Zones in a program run one after another, in zone order, each for its
-        runtime scaled by the program's seasonal adjust.
-        """
-        scale = self._budget_scale(program.program)
-        offset = timedelta()
-        for zone_duration in program.durations:
-            duration = zone_duration.duration * scale
-            if zone_duration.zone == zone:
-                return (offset, duration) if duration else None
-            offset += duration
-        return None
-
     def _zone_timeline(self, zone: int, now: datetime) -> ProgramTimeline | None:
-        """Every scheduled run of a zone, from the options or the controller."""
-        iters: list[Iterable[SortableItem[Timespan, ProgramEvent]]] = []
-        if self.programs:
-            delay = self.rain_delay_days
-            for configured in self.programs:
-                if (slot := self._configured_slot(configured, zone)) is None:
-                    continue
-                offset, duration = slot
-                iters.extend(
-                    configured.recurrence(
-                        start, now, offset, duration, zone=zone, delay_days=delay
-                    )
-                    for start in configured.starts
-                )
-            return ProgramTimeline(MergedIterable(iters)) if iters else None
-        if (schedule := self._schedule) is None:
+        """Every scheduled run of a zone from the programs in the options."""
+        if not self.programs:
             return None
-        for program in schedule.programs:
-            if (slot := self._program_slot(program, zone)) is None:
+        iters: list[Iterable[SortableItem[Timespan, ProgramEvent]]] = []
+        delay = self.rain_delay_days
+        for configured in self.programs:
+            if (slot := self._configured_slot(configured, zone)) is None:
                 continue
             offset, duration = slot
-            for start in program.starts:
-                dtstart = (
-                    now.replace(
-                        hour=start.hour, minute=start.minute, second=0, microsecond=0
-                    )
-                    + offset
+            iters.extend(
+                configured.recurrence(
+                    start, now, offset, duration, zone=zone, delay_days=delay
                 )
-                iters.append(
-                    create_recurrence(
-                        ProgramId(program.program, zone),
-                        program.frequency,
-                        dtstart,
-                        duration,
-                        program.synchro or 0,
-                        program.days_of_week,
-                        program.period or 0,
-                        delay_days=schedule.delay_days,
-                    )
-                )
-        for zone_schedule in schedule.zone_schedules.values():
-            if zone_schedule.zone == zone:
-                iters.extend(zone_schedule.timeline_iters(now.tzinfo))
+                for start in configured.starts
+            )
         return ProgramTimeline(MergedIterable(iters)) if iters else None
+
+    def _calendar_next(self, zone: int, now: datetime) -> datetime | None:
+        """Next start of a zone from Rain Bird's calendar, if it listed zones."""
+        upcoming = [
+            start
+            for program_zone, start, _end, _program in self._calendar_runs
+            if program_zone == zone and start > now
+        ]
+        return min(upcoming) if upcoming else None
+
+    def _calendar_end(self, zone: int, now: datetime) -> datetime | None:
+        """End of the calendar run this zone is in the middle of."""
+        for program_zone, start, end, _program in self._calendar_runs:
+            if program_zone != zone:
+                continue
+            if start - SCHEDULE_TOLERANCE <= now <= end + SCHEDULE_TOLERANCE:
+                return end
+        return None
 
     def next_run(self, zone: int) -> datetime | None:
         """When the schedule next runs this zone (None while turned off)."""
         if self.turned_off:
             return None
         now = dt_util.now()
-        if (timeline := self._zone_timeline(zone, now)) is None:
-            return None
-        event = next(timeline.start_after(now), None)
-        return dt_util.as_utc(event.start) if event else None
+        if self.programs:
+            if (timeline := self._zone_timeline(zone, now)) is None:
+                return None
+            event = next(timeline.start_after(now), None)
+            return dt_util.as_utc(event.start) if event else None
+        start = self._calendar_next(zone, now)
+        return dt_util.as_utc(start) if start else None
 
     def scheduled_end(self, zone: int) -> datetime | None:
-        """When a running zone should finish, worked out from the schedule.
+        """When a running zone should finish, from a program or the calendar.
 
-        Used when the controller doesn't report the remaining run time: for a
-        program started from here, and for scheduled runs.
+        Rain Bird doesn't publish remaining seconds. A program started from
+        here uses the zone's slot. A run already on the calendar uses that
+        event. Anything else is estimated from the valve runtime.
         """
         now = dt_util.now()
         if self._manual_program is not None:
@@ -748,12 +657,15 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                     end = started + offset + duration
                     if now < end + SCHEDULE_TOLERANCE:
                         return dt_util.as_utc(end)
-        if (timeline := self._zone_timeline(zone, now)) is None:
+        if self.programs:
+            if (timeline := self._zone_timeline(zone, now)) is None:
+                return None
+            event = next(timeline.active_after(now - SCHEDULE_TOLERANCE), None)
+            if event is not None and event.start - SCHEDULE_TOLERANCE <= now:
+                return dt_util.as_utc(event.end)
             return None
-        event = next(timeline.active_after(now - SCHEDULE_TOLERANCE), None)
-        if event is not None and event.start - SCHEDULE_TOLERANCE <= now:
-            return dt_util.as_utc(event.end)
-        return None
+        calendar_end = self._calendar_end(zone, now)
+        return dt_util.as_utc(calendar_end) if calendar_end else None
 
     async def async_start_zone(
         self, zone: int, seconds: int | None = None, *, _sequence: bool = False
@@ -764,10 +676,17 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._manual_program = None
         seconds = self.runtime_for(zone) if seconds is None else seconds
         minutes = max(1, round(seconds / 60))
-        await self._async_command(self.controller.irrigate_zone, zone, minutes)
         now = dt_util.utcnow()
+        # Record the run before the service call. Turning the switch on
+        # refreshes us while the call is still in progress.
         self._started = {zone: _LocalRun(now + timedelta(minutes=minutes), now)}
-        self._optimistic_active({zone})
+        try:
+            await self.core.async_start_zone(zone, minutes)
+        except HomeAssistantError:
+            self._started.pop(zone, None)
+            self._publish_end_times()
+            raise
+        self._publish_end_times()
 
     @property
     def paused(self) -> bool:
@@ -794,12 +713,12 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
             steps.insert(0, Step(step.zone, left))
         source = self._sequence_source
         self._cancel_sequence()
-        await self._async_command(self.controller.stop_irrigation)
+        await self.core.async_stop()
         self._started.clear()
         self._paused_steps = steps
         self._paused_source = source
         _LOGGER.info("Paused %s with %s steps left", source, len(steps))
-        self._optimistic_active(set())
+        self._publish_end_times()
 
     async def async_resume(self) -> None:
         """Carry on with a paused sequence."""
@@ -817,31 +736,37 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._cancel_sequence()
         self._paused_steps = None
         self._manual_program = None
-        await self._async_command(self.controller.stop_irrigation)
+        await self.core.async_stop()
         self._started.clear()
-        self._optimistic_active(set())
+        self._publish_end_times()
 
     async def async_run_program(self, program: int) -> None:
-        """Start one of the controller's programs (0 = A)."""
+        """Press Rain Bird's Run program button (0 = A)."""
         self._cancel_sequence()
-        await self._async_command(self.controller.set_program, program)
+        await self.core.async_run_program(program)
         self._started.clear()
         self._manual_program = (program, dt_util.now())
-        self.config_entry.async_create_background_task(
-            self.hass, self.rainbird.async_request_refresh(), f"{DOMAIN} confirm"
-        )
+        self._publish_end_times()
 
     async def async_set_rain_delay(
         self, days: int, *, wait_for_refresh: bool = False
     ) -> None:
-        """Set the controller's rain delay and refresh the core entities."""
-        await self._async_command(self.controller.set_rain_delay, days)
+        """Set the rain delay through Rain Bird's number or service.
+
+        The number updates when Rain Bird next polls. Until then the value
+        just set is what schedules use. ``wait_for_refresh`` gives that poll
+        a short chance to land before returning; it does not ask Rain Bird
+        to reload.
+        """
+        await self.core.async_set_rain_delay(days)
+        self._pending_rain_delay = days
         if wait_for_refresh:
-            await self.rainbird.async_request_refresh()
-        else:
-            self.config_entry.async_create_background_task(
-                self.hass, self.rainbird.async_request_refresh(), f"{DOMAIN} confirm"
-            )
+            for _ in range(20):
+                if self.core.rain_delay_days() == days:
+                    self._pending_rain_delay = None
+                    break
+                await asyncio.sleep(0.1)
+        self.async_update_listeners()
 
     def run_all_zones_order(self) -> list[int]:
         """Zones Run all zones runs, in order (from the options, else all)."""
@@ -993,32 +918,37 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         if was_running:
             self.async_update_listeners()
 
-    async def _async_command(self, func: Callable[..., Any], *args: Any) -> None:
-        if self.rainbird_entry.state is not ConfigEntryState.LOADED:
-            raise HomeAssistantError("The Rain Bird integration is not loaded")
-        try:
-            async with self._device_lock, asyncio.timeout(TIMEOUT_SECONDS):
-                await func(*args)
-        except RainbirdDeviceBusyException as err:
-            raise HomeAssistantError(
-                "Rain Bird device is busy; wait and try again"
-            ) from err
-        except (RainbirdApiException, TimeoutError) as err:
-            raise HomeAssistantError("Rain Bird device failure") from err
+    def _publish_end_times(self) -> None:
+        """Update our entities from the switches and runs we started.
 
-    def _optimistic_active(self, active: set[int]) -> None:
-        """Reflect a command right away; the controller lags a few seconds.
-
-        This also updates the core integration's switches, then asks the core
-        coordinator for a (debounced) refresh to confirm the real state.
+        The Rain Bird switches are left alone. They change when Rain Bird's
+        own service updates them, and a state listener refreshes us then.
         """
-        if self.rainbird.data is not None:
-            self.rainbird.data.active_zones.clear()
-            self.rainbird.data.active_zones.update(active)
-        end_times = self._compute_end_times(active, None) if active else {}
+        end_times = self._compute_end_times(self.core.active_zones())
         self._track_runs(end_times)
         self.async_set_updated_data(end_times)
-        self.rainbird.async_update_listeners()
-        self.config_entry.async_create_background_task(
-            self.hass, self.rainbird.async_request_refresh(), f"{DOMAIN} confirm"
+        self._schedule_running_refresh(bool(end_times) or self._sequence_active)
+
+    @callback
+    def _cancel_running_refresh(self) -> None:
+        if self._running_unsub is not None:
+            self._running_unsub()
+            self._running_unsub = None
+
+    @callback
+    def _schedule_running_refresh(self, needed: bool) -> None:
+        """Keep water use and estimates moving while a switch stays on."""
+        self._cancel_running_refresh()
+        if not needed:
+            return
+
+        @callback
+        def _due(_now: datetime) -> None:
+            self._running_unsub = None
+            self.config_entry.async_create_background_task(
+                self.hass, self.async_request_refresh(), f"{DOMAIN} running"
+            )
+
+        self._running_unsub = async_track_point_in_utc_time(
+            self.hass, _due, dt_util.utcnow() + RUNNING_REFRESH
         )

@@ -31,16 +31,11 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
-    CONF_ADJUST_HIGH_PERCENT,
-    CONF_ADJUST_HIGH_TEMPERATURE,
-    CONF_ADJUST_LOW_PERCENT,
-    CONF_ADJUST_LOW_TEMPERATURE,
     CONF_BLOWOUT_CYCLES,
     CONF_BLOWOUT_ON_MINUTES,
     CONF_BLOWOUT_REST_SECONDS,
     CONF_BLOWOUT_ZONES,
     CONF_CYCLE_MINUTES,
-    CONF_DISABLE_RAINBIRD_SWITCHES,
     CONF_FREEZE_DELAY_DAYS,
     CONF_FREEZE_SENSOR,
     CONF_FREEZE_TEMPERATURE,
@@ -57,12 +52,9 @@ from .const import (
     CONF_STOP_ACTION,
     CONF_TEMPERATURE_UNIT,
     CONF_WEATHER_ENTITY,
-    DEFAULT_ADJUST_HIGH_PERCENT,
-    DEFAULT_ADJUST_LOW_PERCENT,
     DEFAULT_BLOWOUT_CYCLES,
     DEFAULT_BLOWOUT_ON_MINUTES,
     DEFAULT_BLOWOUT_REST_SECONDS,
-    DEFAULT_DISABLE_RAINBIRD_SWITCHES,
     DEFAULT_FREEZE_DELAY_DAYS,
     DEFAULT_MOISTURE_DELAY_DAYS,
     DEFAULT_MOISTURE_THRESHOLD,
@@ -81,7 +73,6 @@ from .const import (
     SECTION_RAIN_SKIP,
     SECTION_RUN_ALL_ZONES,
     SECTION_WEATHER,
-    SECTION_WEATHER_ADJUSTMENT,
     STOP_ACTION_TURN_OFF,
     STOP_ACTIONS,
     TEMPERATURE_DEFAULTS,
@@ -115,7 +106,7 @@ MAX_PROGRAMS = 4
 class RainbirdExtendedConfigFlow(ConfigFlow, domain=DOMAIN):
     """Pick which Rain Bird controller to extend."""
 
-    VERSION = 1
+    VERSION = 2
 
     @staticmethod
     @callback
@@ -456,21 +447,6 @@ def options_schema(valves: list[str], unit: str) -> vol.Schema:
                 CONF_MOISTURE_DELAY_DAYS, default=DEFAULT_MOISTURE_DELAY_DAYS
             ): _number(1, 14, 1),
         },
-        SECTION_WEATHER_ADJUSTMENT: {
-            vol.Required(
-                CONF_ADJUST_LOW_TEMPERATURE, default=temps[CONF_ADJUST_LOW_TEMPERATURE]
-            ): _number(-20, 130, 1, unit),
-            vol.Required(
-                CONF_ADJUST_LOW_PERCENT, default=DEFAULT_ADJUST_LOW_PERCENT
-            ): _number(10, 200, 5, "%"),
-            vol.Required(
-                CONF_ADJUST_HIGH_TEMPERATURE,
-                default=temps[CONF_ADJUST_HIGH_TEMPERATURE],
-            ): _number(-20, 130, 1, unit),
-            vol.Required(
-                CONF_ADJUST_HIGH_PERCENT, default=DEFAULT_ADJUST_HIGH_PERCENT
-            ): _number(10, 200, 5, "%"),
-        },
     }
     return vol.Schema(
         {
@@ -481,10 +457,6 @@ def options_schema(valves: list[str], unit: str) -> vol.Schema:
                     translation_key="stop_action",
                 )
             ),
-            vol.Required(
-                CONF_DISABLE_RAINBIRD_SWITCHES,
-                default=DEFAULT_DISABLE_RAINBIRD_SWITCHES,
-            ): bool,
             vol.Optional(CONF_POWER_ENTITY): EntitySelector(
                 EntitySelectorConfig(domain=list(POWER_ENTITY_DOMAINS))
             ),

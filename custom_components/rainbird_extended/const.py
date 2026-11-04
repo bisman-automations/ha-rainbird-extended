@@ -29,8 +29,6 @@ RUNTIME_MIN_SECONDS = 60
 RUNTIME_MAX_SECONDS = 1440 * 60
 RUNTIME_STEP_SECONDS = 60
 
-TIMEOUT_SECONDS = 20
-
 # The device keeps reporting a zone as idle for a few seconds after it is
 # started; keep the end time we computed ourselves for at least this long.
 START_GRACE_PERIOD = timedelta(seconds=90)
@@ -40,9 +38,6 @@ CONFIRM_DELAY = timedelta(seconds=10)
 # Ignore drift smaller than this when the controller re-reports the
 # remaining run time, so the end-time sensor does not change every poll.
 END_TIME_TOLERANCE = timedelta(seconds=30)
-
-# Re-ask the controller for its state (seasonal adjust) this often while idle.
-CONTROLLER_STATE_IDLE_REFRESH = timedelta(minutes=30)
 
 # A run tracked by Home Assistant that disappears this long before its end
 # was stopped early (for "Run all zones" this ends the sequence).
@@ -64,10 +59,6 @@ FLOW_RATE_STEP = 0.1
 
 SERVICE_START_ZONE = "start_zone"
 ATTR_DURATION = "duration"
-
-# Water budget "program" code for controllers with one controller-wide value.
-LCR_BUDGET = 0xFF
-SEASONAL_ADJUST_MIN = 10
 
 # How far a zone's actual start may drift from its scheduled or expected start
 # and still be matched to it when working out time remaining.
@@ -118,27 +109,16 @@ CONF_FREEZE_DELAY_DAYS = "freeze_delay_days"
 DEFAULT_FREEZE_DELAY_DAYS = 1
 EVENT_FREEZE_SKIP = f"{DOMAIN}_freeze_skip"
 
-# Weather adjustment: seasonal adjust from the forecast high.
+# Weather adjustment options, kept only so version 1 entries can drop them.
+# The controller's seasonal adjust has no public service or entity.
 CONF_ADJUST_LOW_TEMPERATURE = "adjust_low_temperature"
 CONF_ADJUST_LOW_PERCENT = "adjust_low_percent"
 CONF_ADJUST_HIGH_TEMPERATURE = "adjust_high_temperature"
 CONF_ADJUST_HIGH_PERCENT = "adjust_high_percent"
-DEFAULT_ADJUST_LOW_PERCENT = 60
-DEFAULT_ADJUST_HIGH_PERCENT = 150
-EVENT_WEATHER_ADJUSTMENT = f"{DOMAIN}_weather_adjustment"
-
-# Temperature defaults by unit: freeze, adjustment low and high.
+# Temperature defaults by unit.
 TEMPERATURE_DEFAULTS: dict[str, dict[str, float]] = {
-    "°F": {
-        CONF_FREEZE_TEMPERATURE: 35,
-        CONF_ADJUST_LOW_TEMPERATURE: 60,
-        CONF_ADJUST_HIGH_TEMPERATURE: 95,
-    },
-    "°C": {
-        CONF_FREEZE_TEMPERATURE: 2,
-        CONF_ADJUST_LOW_TEMPERATURE: 15,
-        CONF_ADJUST_HIGH_TEMPERATURE: 35,
-    },
+    "°F": {CONF_FREEZE_TEMPERATURE: 35},
+    "°C": {CONF_FREEZE_TEMPERATURE: 2},
 }
 
 # Soil moisture skip: a rain delay when the soil is already wet.
@@ -155,7 +135,6 @@ SECTION_BLOWOUT = "blowout_section"
 SECTION_WEATHER = "weather_section"
 SECTION_RAIN_SKIP = "rain_skip_section"
 SECTION_FREEZE_SKIP = "freeze_skip_section"
-SECTION_WEATHER_ADJUSTMENT = "weather_adjustment_section"
 SECTION_MOISTURE_SKIP = "moisture_skip_section"
 
 # How often a zone runs, for its estimated next run when the controller's

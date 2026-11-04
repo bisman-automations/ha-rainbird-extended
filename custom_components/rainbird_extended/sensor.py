@@ -12,7 +12,6 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -22,12 +21,7 @@ from homeassistant.util import dt as dt_util
 from . import RainbirdExtendedConfigEntry
 from .const import DEFAULT_INTERVAL_DAYS
 from .coordinator import SOURCE_OTHER, RainbirdExtendedCoordinator, ZoneRun
-from .entity import (
-    RainbirdExtendedControllerEntity,
-    RainbirdExtendedZoneEntity,
-    water_budget_naming,
-    water_units,
-)
+from .entity import RainbirdExtendedZoneEntity, water_units
 
 ATTR_DURATION = "duration"
 ATTR_END = "end"
@@ -44,15 +38,6 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     _, volume_unit = water_units(hass)
     entities: list[Entity] = []
-    if not coordinator.supports_water_budget:
-        # Read-only fallback from the controller state for older models.
-        entities.append(RainbirdSeasonalAdjustment(coordinator))
-    elif not coordinator.can_set_water_budget:
-        # pyrainbird too old to change it: show it read-only.
-        entities.extend(
-            RainbirdWaterBudget(coordinator, key)
-            for key in coordinator.water_budget_keys
-        )
     for zone in coordinator.linked_zones:
         entities.extend(
             (
@@ -256,55 +241,3 @@ class RainbirdZoneWaterUsed(RainbirdExtendedZoneEntity, RestoreSensor):
             self._attr_native_value = round(current + flow * delta / 60, 3)
         self._seen_seconds = seconds
         super()._handle_coordinator_update()
-
-
-class RainbirdSeasonalAdjustment(RainbirdExtendedControllerEntity, SensorEntity):
-    """The controller's seasonal adjustment (100% = runtimes as programmed)."""
-
-    _attr_native_unit_of_measurement = PERCENTAGE
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_translation_key = "seasonal_adjustment"
-
-    def __init__(self, coordinator: RainbirdExtendedCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "seasonal_adjustment")
-
-    @property
-    def available(self) -> bool:
-        """Only available for controllers that report it."""
-        return (
-            super().available
-            and self.coordinator.supports_controller_state is not False
-            and self.coordinator.controller_state is not None
-        )
-
-    @property
-    def native_value(self) -> int | None:
-        """Return the seasonal adjustment."""
-        state = self.coordinator.controller_state
-        return state.seasonal_adjust if state else None
-
-
-class RainbirdWaterBudget(RainbirdExtendedControllerEntity, SensorEntity):
-    """A program's seasonal adjustment, read-only."""
-
-    _attr_native_unit_of_measurement = PERCENTAGE
-    _attr_state_class = SensorStateClass.MEASUREMENT
-
-    def __init__(self, coordinator: RainbirdExtendedCoordinator, key: int) -> None:
-        """Initialize the sensor."""
-        unique_key, translation_key, placeholders = water_budget_naming(key)
-        super().__init__(coordinator, unique_key)
-        self._attr_translation_key = translation_key
-        self._attr_translation_placeholders = placeholders
-        self._key = key
-
-    @property
-    def available(self) -> bool:
-        """Available once the controller has reported the value."""
-        return super().available and self._key in self.coordinator.water_budgets
-
-    @property
-    def native_value(self) -> int | None:
-        """Return the seasonal adjustment."""
-        return self.coordinator.water_budgets.get(self._key)

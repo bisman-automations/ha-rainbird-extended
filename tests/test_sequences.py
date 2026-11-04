@@ -189,7 +189,6 @@ async def test_options_zone_order(
             result["flow_id"],
             nest(
                 {
-                    CONF_DISABLE_RAINBIRD_SWITCHES: False,
                     CONF_RUN_ALL_ZONES: [zone(3), "valve.someone_else"],
                 }
             ),
@@ -199,7 +198,6 @@ async def test_options_zone_order(
         result["flow_id"],
         nest(
             {
-                CONF_DISABLE_RAINBIRD_SWITCHES: False,
                 CONF_RUN_ALL_ZONES: [zone(3), zone(1)],
             }
         ),

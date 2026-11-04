@@ -40,18 +40,15 @@ async def test_diagnostics_idle(
         "unique_id": "**REDACTED**",
         "default_duration_minutes": 6,
     }
-    assert diag["controller"] == {
-        "model": "ESP-TM2",
-        "model_code": "ESP_TM2",
-        "firmware": "9.12",
-        "supports_remaining_runtime": None,
-        "seasonal_adjust": None,
-        "max_programs": 3,
-        "supports_water_budget": True,
-        "can_set_water_budget": True,
-        "water_budgets": {"0": 100, "1": 100, "2": 100},
-    }
-    assert diag["options"] == {"disable_rainbird_switches": False}
+    assert diag["core"]["reachable"] is True
+    assert diag["core"]["rain_delay_days"] == 0
+    assert diag["core"]["rain_sensor"] is False
+    assert set(diag["core"]["zone_switches"]) == {"1", "2", "3"}
+    # Empty on Home Assistant 2026.9, which has no Run program buttons.
+    assert set(diag["core"]["program_buttons"]) <= {"0", "1", "2", "3"}
+    assert diag["core"]["calendar"] == "calendar.rain_bird_controller"
+    assert "controller" not in diag
+    assert diag["options"] == {}
     assert diag["flow_rates"] == {"1": 0.0, "2": 0.0, "3": 0.0}
     assert diag["last_runs"] == {}
     assert diag["run_all_zones_active"] is False
@@ -61,7 +58,7 @@ async def test_diagnostics_idle(
     assert diag["runtimes_seconds"] == {"1": 360, "2": 360, "3": 360}
     assert diag["end_times"] == {}
     assert diag["local_runs"] == {}
-    assert diag["core_coordinator"]["last_update_success"] is True
+    assert diag["last_update_success"] is True
     assert RAINBIRD_UNIQUE_ID not in str(diag)
 
 

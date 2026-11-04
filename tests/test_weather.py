@@ -1,4 +1,4 @@
-"""Tests for rain skip, freeze skip and weather adjustment."""
+"""Tests for rain skip, freeze skip and soil moisture skip."""
 
 from __future__ import annotations
 
@@ -33,14 +33,9 @@ from custom_components.rainbird_extended.const import (
     EVENT_FREEZE_SKIP,
     EVENT_MOISTURE_SKIP,
     EVENT_RAIN_SKIP,
-    EVENT_WEATHER_ADJUSTMENT,
 )
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
-from homeassistant.components.switch import (
-    DOMAIN as SWITCH_DOMAIN,
-    SERVICE_TURN_OFF,
-    SERVICE_TURN_ON,
-)
+from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN, SERVICE_TURN_OFF
 from homeassistant.components.valve import DOMAIN as VALVE_DOMAIN, SERVICE_OPEN_VALVE
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
@@ -252,73 +247,31 @@ async def test_no_weather_switches_by_default(
         }
     ],
 )
-@pytest.mark.parametrize(
-    ("high", "unit", "percent"),
-    [
-        (25, "°C", 105),
-        (27, "°C", 115),  # 114 rounded to 5
-        (40, "°C", 150),
-        (5, "°C", 60),
-        (77, "°F", 105),  # 25°C
-    ],
-)
-async def test_weather_adjustment(
+async def test_weather_adjustment_is_removed(
     hass: HomeAssistant,
-    freezer: FrozenDateTimeFactory,
-    controller: MagicMock,
-    mock_rainbird: MagicMock,
-    rainbird_entry: MockConfigEntry,
-    extended_entry: MockConfigEntry,
-    high: float,
-    unit: str,
-    percent: int,
-) -> None:
-    """Off until turned on; then each program gets the forecast's percent."""
-    freezer.move_to(_local(3, 59, 50))
-    _weather(hass, {"temperature": high, "precipitation_probability": 0}, unit)
-    events = async_capture_events(hass, EVENT_WEATHER_ADJUSTMENT)
-    await _setup(hass, rainbird_entry, extended_entry)
-    assert hass.states.get(ADJUST).state == "off"
-    await _check_time(hass, freezer)
-    controller.set_water_budget.assert_not_awaited()
-
-    await hass.services.async_call(
-        SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: ADJUST}, blocking=True
-    )
-    freezer.move_to(_local(3, 59, 50) + dt_util.dt.timedelta(days=1))
-    await hass.async_block_till_done()
-    freezer.move_to(_local(4, 0, 0))
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done()
-
-    calls = [call.args for call in controller.set_water_budget.await_args_list]
-    if percent == 100:
-        assert calls == []
-    else:
-        assert calls == [(0, percent), (1, percent), (2, percent)]
-    state = hass.states.get(ADJUST)
-    assert state.attributes["last_percent"] == percent
-    assert events[-1].data["percent"] == percent
-    assert hass.states.get(
-        "number.rain_bird_controller_seasonal_adjustment_a"
-    ).state == str(percent)
-    await _unload(hass, rainbird_entry, extended_entry)
-
-
-@pytest.mark.parametrize("extended_options", [WEATHER_OPTIONS])
-async def test_no_weather_adjustment_when_read_only(
-    hass: HomeAssistant,
-    controller: MagicMock,
     mock_rainbird: MagicMock,
     rainbird_entry: MockConfigEntry,
     extended_entry: MockConfigEntry,
 ) -> None:
-    """Without set_water_budget (Home Assistant 2026.9) there's no switch."""
-    del controller.set_water_budget
-    _weather(hass, {"temperature": 20})
+    """Weather adjustment went away: it wrote the controller's seasonal adjust.
+
+    Saved settings for it are dropped on upgrade. Rain skip and freeze skip,
+    which use the rain delay number, stay.
+    """
+    _weather(hass, {"temperature": 30})
     await _setup(hass, rainbird_entry, extended_entry)
     assert hass.states.get(ADJUST) is None
     assert hass.states.get(FREEZE) is not None
+    assert hass.states.get(RAIN_SKIP) is not None
+    for key in (
+        CONF_ADJUST_LOW_TEMPERATURE,
+        CONF_ADJUST_LOW_PERCENT,
+        CONF_ADJUST_HIGH_TEMPERATURE,
+        CONF_ADJUST_HIGH_PERCENT,
+        CONF_DISABLE_RAINBIRD_SWITCHES,
+    ):
+        assert key not in extended_entry.options
+    assert extended_entry.options[CONF_WEATHER_ENTITY] == WEATHER
     await _unload(hass, rainbird_entry, extended_entry)
 
 

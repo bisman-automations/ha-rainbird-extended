@@ -28,9 +28,11 @@ async def async_setup_entry(
         RainbirdResume(coordinator),
         RainbirdStopIrrigation(coordinator),
     ]
+    # One button per Run program button Rain Bird actually exposes
+    # (Home Assistant 2026.10 and newer). Pressing ours presses that one.
     entities.extend(
         RainbirdRunProgram(coordinator, program)
-        for program in range(coordinator.max_programs)
+        for program in sorted(coordinator.core.program_buttons())
     )
     async_add_entities(entities)
 

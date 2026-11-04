@@ -73,25 +73,36 @@ connection and coordinators; it never opens its own connection.
   `async_unload_entry`. HA 2026.11 moves core integrations to returning
   `None` and raising instead. Custom integrations may still return booleans
   there, but 2026.10 and earlier treat `None` as a failed setup.
-- **Core Rain Bird internals:** `entry.runtime_data.coordinator`,
-  `.schedule_coordinator`, `.controller`, `.model_info` and the core
-  coordinator's `_device_lock` aren't public API. Diff
+- **Core Rain Bird is public surface only.** `core_api.py` is the only
+  place that talks to the Rain Bird integration: its entity registry entries
+  and states (zone switches, Rain delay number, rain sensor, schedule
+  calendar, Run program buttons) and its services
+  (`rainbird.start_irrigation`, `rainbird.set_rain_delay` when registered,
+  otherwise `number.set_value`, `switch.turn_off`, `button.press`,
+  `calendar.get_events`). Do not read `runtime_data`, the pyrainbird
+  controller, private locks, or core coordinator data, and do not write
+  entity or device registry entries that belong to `rainbird`.
+  `programs.py` may use pyrainbird to turn programs the user typed in into
+  a recurrence; that does not open a connection. Diff
   `homeassistant/components/rainbird` between releases before each new HA
-  version.
+  version so the public entities and services are still the ones we call.
 - `voluptuous` imports are fine: HA swaps in `probatio` at runtime (see the
   mypy override in `pyproject.toml`).
 
 ## Layout
 
+- `core_api.py`: Rain Bird's public entities and services for one controller.
 - `coordinator.py`: works out end times and tracks runs. End-time sources,
   in priority order:
-  1. what the controller reports;
-  2. a run started from Home Assistant;
-  3. the schedule (the controller's, or `programs.py` when programs are set
-     up);
-  4. an estimate from the valve runtime.
+  1. a run started from Home Assistant (kept on this coordinator, not written
+     onto Rain Bird's switches);
+  2. programs entered in the options (`programs.py`);
+  3. zone run times listed on Rain Bird's schedule calendar (Home Assistant
+     2026.11 and newer);
+  4. an estimate from the valve runtime, from when the zone switch turned on.
 - `programs.py`: programs entered in the options. They build the same
-  pyrainbird recurrences the controller's schedule would.
+  pyrainbird recurrences the controller's schedule would, without talking
+  to the controller.
 - `devices.py`: our devices, linked to Rain Bird's.
 - `panel.py` and `frontend/rainbird-extended-panel.js`: the admin sidebar
   panel. It's a plain web component with no build step. The module URL
