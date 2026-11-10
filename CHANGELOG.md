@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-11-10
+
+### Changed
+
+- **Install from the Marketplace by searching for Rain Bird Extended.** Home Assistant 2026.11 renames HACS to the Marketplace, so the install steps start by searching the Marketplace. Searching HACS stays for Home Assistant 2026.10 and older, and adding the repository as a custom repository remains the fallback.
+- **The sidebar panel is described once.** The README repeated the paragraph that starts "Rain Bird Extended also adds an administrator-only **Rain Bird Extended** sidebar panel" just above **On each zone**. That second copy is removed.
+- **Ruff 0.17.4 and mypy 2.4.1.** Linting and type checking use the current releases.
+
 ## [2.0.0] - 2026-11-04
 
 ### Removed
@@ -338,6 +346,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[2.0.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.4...v2.0.0
 [1.10.4]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.3...v1.10.4
 [1.10.3]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.2...v1.10.3
