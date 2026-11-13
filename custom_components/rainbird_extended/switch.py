@@ -57,6 +57,9 @@ from .weather import (
     sensor_temperature,
 )
 
+# The device takes one command at a time.
+PARALLEL_UPDATES = 1
+
 _LOGGER = logging.getLogger(__name__)
 
 

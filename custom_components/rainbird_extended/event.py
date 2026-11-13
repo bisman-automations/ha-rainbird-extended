@@ -15,6 +15,9 @@ from .coordinator import (
 )
 from .entity import RainbirdExtendedZoneEntity
 
+# Coordinator or push updates; nothing polls on its own.
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,

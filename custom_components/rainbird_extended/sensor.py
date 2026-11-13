@@ -23,6 +23,9 @@ from .const import DEFAULT_INTERVAL_DAYS
 from .coordinator import SOURCE_OTHER, RainbirdExtendedCoordinator, ZoneRun
 from .entity import RainbirdExtendedZoneEntity, water_units
 
+# Coordinator or push updates; nothing polls on its own.
+PARALLEL_UPDATES = 0
+
 ATTR_DURATION = "duration"
 ATTR_END = "end"
 ATTR_SOURCE = "source"

@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-11-13
+
+### Changed
+
+- **Commands go to the controller one at a time.** Valves, run times, switches and buttons send their commands one after another, so the controller isn't asked for two things at once. Everything else updates as before.
+
 ## [2.0.1] - 2026-11-10
 
 ### Changed
@@ -346,6 +352,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[2.0.2]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.4...v2.0.0
 [1.10.4]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.3...v1.10.4

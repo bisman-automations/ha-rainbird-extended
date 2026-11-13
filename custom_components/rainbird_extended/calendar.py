@@ -30,6 +30,9 @@ from .coordinator import (
 from .entity import RainbirdExtendedControllerEntity, find_device
 from .programs import EVERY_DAYS_MAX
 
+# Coordinator or push updates; nothing polls on its own.
+PARALLEL_UPDATES = 0
+
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1

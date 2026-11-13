@@ -17,6 +17,9 @@ from . import RainbirdExtendedConfigEntry
 from .coordinator import RainbirdExtendedCoordinator
 from .entity import RainbirdExtendedZoneEntity
 
+# The device takes one command at a time.
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
