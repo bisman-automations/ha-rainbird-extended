@@ -23,7 +23,7 @@ from custom_components.rainbird_extended.yard import (
     default_background,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .conftest import RAINBIRD_UNIQUE_ID
 
@@ -318,3 +318,65 @@ async def test_apple_key_over_the_websocket(
     assert store.get("x")["apple"]["team_id"] == "ABCDE12345"
     reply = await _ws(client, type=f"{DOMAIN}/panel/yard/apple_key", clear=True)
     assert reply["result"] == {"apple": None}
+
+
+# The device registry saves a moment later on the oldest Home Assistant.
+@pytest.mark.parametrize("expected_lingering_timers", [True])
+async def test_hide_and_show_a_zone(
+    hass: HomeAssistant,
+    hass_ws_client,
+    rainbird_entry: MockConfigEntry,
+    extended_entry: MockConfigEntry,
+    device_registry: dr.DeviceRegistry,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    device = device_registry.async_get_or_create(
+        config_entry_id=extended_entry.entry_id,
+        identifiers={(DOMAIN, f"{RAINBIRD_UNIQUE_ID}-5")},
+        name="Sprinkler 5",
+    )
+    valve = entity_registry.async_get_or_create(
+        "valve",
+        DOMAIN,
+        f"{RAINBIRD_UNIQUE_ID}-5-valve",
+        config_entry=extended_entry,
+        device_id=device.id,
+    )
+    client = await _client(hass, hass_ws_client)
+
+    reply = await _ws(
+        client,
+        type=f"{DOMAIN}/panel/zone_hidden",
+        entry_id=extended_entry.entry_id,
+        zone=5,
+        hidden=True,
+    )
+    assert reply["success"], reply
+    assert device_registry.async_get(device.id).disabled_by is (
+        dr.DeviceEntryDisabler.USER
+    )
+    # Its entities go with it.
+    assert entity_registry.async_get(valve.entity_id).disabled_by is not None
+    controller = _panel_config(hass)["controllers"][0]
+    assert controller["hidden_zones"] == [{"zone": 5, "name": "Sprinkler 5"}]
+    assert all(zone["zone"] != 5 for zone in controller["zones"])
+
+    reply = await _ws(
+        client,
+        type=f"{DOMAIN}/panel/zone_hidden",
+        entry_id=extended_entry.entry_id,
+        zone=5,
+        hidden=False,
+    )
+    assert reply["success"]
+    assert device_registry.async_get(device.id).disabled_by is None
+    assert _panel_config(hass)["controllers"][0]["hidden_zones"] == []
+
+    reply = await _ws(
+        client,
+        type=f"{DOMAIN}/panel/zone_hidden",
+        entry_id=extended_entry.entry_id,
+        zone=9,
+        hidden=True,
+    )
+    assert reply["error"]["code"] == "not_found"

@@ -43,8 +43,10 @@ const yardLoadLeaflet = () => {
 // origin only; the private key never reaches the browser.
 let yardMapKit;
 let yardMapKitHass;
-const yardLoadMapKit = (hass) => {
+let yardMapKitPanel;
+const yardLoadMapKit = (hass, panel) => {
   yardMapKitHass = hass;
+  yardMapKitPanel = panel;
   if (!yardMapKit) {
     yardMapKit = new Promise((resolve, reject) => {
       const script = document.createElement("script");
@@ -59,6 +61,16 @@ const yardLoadMapKit = (hass) => {
               .then((result) => done(result.token))
               .catch(() => done(""));
           },
+        });
+        // A wrong Team ID or Key ID shows up here, not when the key is saved.
+        mapkit.addEventListener?.("error", (event) => {
+          const status = String(event?.status || "");
+          yardMapKitPanel?._showNotice(
+            status === "Unauthorized"
+              ? "Apple Maps didn't accept the MapKit key. Check the Team ID, and that the key has MapKit JS turned on."
+              : "Apple Maps couldn't load the map.",
+            true,
+          );
         });
         resolve(mapkit);
       };
@@ -78,6 +90,14 @@ const yardLoadMapKit = (hass) => {
 const yardMapRect = (minX, minY, maxX, maxY, zoom) => {
   const world = 256 * 2 ** zoom;
   return [minX / world, minY / world, (maxX - minX) / world, (maxY - minY) / world];
+};
+
+// A dropped .p8 file: its private key, and the Key ID from Apple's file
+// name (AuthKey_<Key ID>.p8). Null when it isn't a private key.
+const yardP8Key = (fileName, text) => {
+  if (!/-----BEGIN PRIVATE KEY-----[\s\S]+-----END PRIVATE KEY-----/.test(text || "")) return null;
+  const match = /AuthKey_([A-Z0-9]{10})(?![A-Z0-9])/i.exec(fileName || "");
+  return { pem: text.trim(), keyId: match ? match[1].toUpperCase() : "" };
 };
 
 // Square meters inside an outline of [lat, lng] points (flat earth: fine for a yard).
@@ -143,6 +163,12 @@ const YARD_STYLE = `
   .yard-apple-form{display:grid;gap:8px;margin-bottom:10px}
   .yard-apple-form .ids{display:flex;flex-wrap:wrap;gap:8px}
   .yard-apple-form input{flex:1 1 140px}
+  .yard-drop{display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px 12px;border:2px dashed var(--border);border-radius:12px;text-align:center;cursor:pointer;font-size:14px}
+  .yard-drop span{font-size:13px;color:var(--secondary-text-color)}
+  .yard-drop.over{border-color:var(--blue);background:color-mix(in srgb,var(--blue) 8%,transparent)}
+  .yard-drop.loaded{border-style:solid;border-color:var(--green,#43a047)}
+  .yard-apple-form details textarea{width:100%;box-sizing:border-box;margin-top:6px}
+  .yard-apple-form summary{cursor:pointer}
   .yard-apple-form textarea{font:12px/1.4 monospace;min-height:90px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--card-background-color,#fff);color:var(--primary-text-color)}
   .yard-map.drawing{cursor:crosshair}
   .yard-tools{display:grid;gap:8px;margin:0 0 10px}
@@ -183,6 +209,10 @@ class YardMap {
       <div class="yard-map" role="region" aria-label="Yard map"><div class="yard-apple" hidden></div><div class="yard-leaflet"></div></div><div class="yard-note yard-hint"></div>`;
     this.root.addEventListener("click", (event) => this._onClick(event));
     this.root.addEventListener("change", (event) => this._onChange(event));
+    this.root.addEventListener("input", (event) => this._onInput(event));
+    for (const type of ["dragenter", "dragover", "dragleave", "drop"]) {
+      this.root.addEventListener(type, (event) => this._onDrag(event));
+    }
     this._ticker = setInterval(() => this.refresh(), 30000);
   }
 
@@ -316,14 +346,86 @@ class YardMap {
         <button class="secondary compact" data-yard-act="apple-change" ${busy}>Change key</button>
         <button class="secondary compact" data-yard-act="apple-clear" ${busy}>Remove key</button></div>`;
     }
+    const draft = this._appleDraft();
+    const file = draft.fileName
+      ? `<b>${this._esc(draft.fileName)}</b><span>${draft.keyId ? `Key ID ${this._esc(draft.keyId)}` : "Add the Key ID below"}</span>`
+      : `<b>Drop your AuthKey_….p8 file here</b><span>or tap to choose it</span>`;
     return `<div class="yard-apple-form">
-      <p class="yard-note" style="margin:0">In your Apple Developer account, create a Maps ID and a key with MapKit JS turned on, then paste the key's details here. The private key stays in Home Assistant; the map gets short-lived tokens signed with it.</p>
-      <div class="ids"><input type="text" name="team_id" placeholder="Team ID" autocomplete="off" spellcheck="false" aria-label="Apple Team ID">
-        <input type="text" name="key_id" placeholder="Key ID" autocomplete="off" spellcheck="false" aria-label="MapKit Key ID"></div>
-      <textarea name="private_key" placeholder="-----BEGIN PRIVATE KEY-----" spellcheck="false" aria-label="Private key (.p8 file contents)"></textarea>
-      <div class="ids"><button class="primary compact" data-yard-act="apple-save" ${busy}>Save Apple key</button>
+      <p class="yard-note" style="margin:0">Drop the <b>.p8</b> file you downloaded for your MapKit JS key. The Key ID is read from its name. The private key stays in Home Assistant; the map only gets short-lived tokens signed with it.</p>
+      <label class="yard-drop ${draft.pem ? "loaded" : ""}" data-yard-drop>
+        <input type="file" accept=".p8,application/pkcs8,text/plain" data-yard-change="p8" hidden>
+        ${file}
+      </label>
+      <div class="ids">
+        <input type="text" name="team_id" value="${this._esc(draft.teamId)}" maxlength="10" placeholder="Team ID (10 characters)" autocomplete="off" spellcheck="false" aria-label="Apple Team ID" data-yard-input="teamId">
+        ${draft.fileName && draft.keyId ? "" : `<input type="text" name="key_id" value="${this._esc(draft.keyId)}" maxlength="10" placeholder="Key ID" autocomplete="off" spellcheck="false" aria-label="MapKit Key ID" data-yard-input="keyId">`}
+      </div>
+      <p class="yard-note" style="margin:0">The Team ID isn't in the file: it's under <b>Membership details</b> on developer.apple.com. Once both are here the key saves by itself.</p>
+      <details ${draft.pem && !draft.fileName ? "open" : ""}><summary class="yard-note">Paste the key instead</summary>
+        <textarea name="private_key" placeholder="-----BEGIN PRIVATE KEY-----" spellcheck="false" aria-label="Private key (.p8 file contents)" data-yard-input="pem">${draft.fileName ? "" : this._esc(draft.pem)}</textarea>
+      </details>
+      <div class="ids"><button class="primary compact" data-yard-act="apple-save" ${busy || (this._appleReady() ? "" : "disabled")}>Save Apple key</button>
         ${yard.apple ? `<button class="secondary compact" data-yard-act="apple-cancel">Cancel</button>` : ""}</div>
     </div>`;
+  }
+
+  // What's been dropped or typed for the Apple key, kept across redraws.
+  _appleDraft() {
+    if (!this._apple) this._apple = { teamId: this.yard.apple?.team_id || "", keyId: "", pem: "", fileName: "" };
+    return this._apple;
+  }
+
+  _appleReady() {
+    const draft = this._appleDraft();
+    const id = /^[A-Z0-9]{10}$/;
+    return id.test(draft.teamId.trim().toUpperCase()) && id.test(draft.keyId.trim().toUpperCase()) && /BEGIN PRIVATE KEY/.test(draft.pem);
+  }
+
+  async _readP8(file) {
+    if (!file) return;
+    const draft = this._appleDraft();
+    let text = "";
+    try {
+      text = await file.text();
+    } catch (_error) {
+      text = "";
+    }
+    const key = yardP8Key(file.name, text);
+    if (!key) {
+      this.panel._showNotice(`${file.name} isn't a .p8 private key.`, true);
+      return;
+    }
+    draft.pem = key.pem;
+    draft.fileName = file.name;
+    if (key.keyId) draft.keyId = key.keyId;
+    this._renderControls();
+    if (this._appleReady()) this._saveApple();
+    else this.root.querySelector("[name=team_id]")?.focus();
+  }
+
+  async _saveApple() {
+    const draft = this._appleDraft();
+    this._busy = true;
+    this._renderControls();
+    try {
+      const result = await this.hass.callWS({
+        type: `${DOMAIN}/panel/yard/apple_key`,
+        team_id: draft.teamId.trim(),
+        key_id: draft.keyId.trim(),
+        private_key: draft.pem,
+      });
+      this.controller.yard.apple = result.apple;
+      this._changingApple = false;
+      this._apple = undefined;
+      this.apple?.destroy();
+      this.apple = undefined;
+      this.panel._showNotice("Apple Maps key saved.");
+    } catch (error) {
+      this.panel._showNotice(error?.message || "Unable to save the Apple key.", true);
+    }
+    this._busy = false;
+    this._renderControls();
+    this._syncLayers();
   }
 
   // The Apple map under Leaflet, matched to Leaflet's view.
@@ -343,7 +445,7 @@ class YardMap {
     if (this.apple || this._appleLoading) return;
     this._appleLoading = true;
     try {
-      const mapkit = await yardLoadMapKit(this.hass);
+      const mapkit = await yardLoadMapKit(this.hass, this.panel);
       if (this.yard.background !== "apple") return;
       this.mapkit = mapkit;
       this.apple = new mapkit.Map(el, {
@@ -409,13 +511,15 @@ class YardMap {
       else this.home.addTo(this.map);
     }
     for (const [zone, layer] of this.shapes) {
-      if (!yard.zones?.[String(zone)]) {
+      if (!yard.zones?.[String(zone)] || !this.zones.some((z) => z.zone === zone)) {
         layer.remove();
         this.shapes.delete(zone);
       }
     }
+    const shown = new Set(this.zones.map((z) => String(z.zone)));
     for (const [key, points] of Object.entries(yard.zones || {})) {
       const zone = Number(key);
+      if (!shown.has(key)) continue;
       let layer = this.shapes.get(zone);
       if (!layer) {
         layer = L.polygon(points, { weight: 2 }).addTo(this.map);
@@ -436,6 +540,7 @@ class YardMap {
     if (!this.map || !this.editing || this.drawing) return;
     const L = this.L;
     for (const [key, points] of Object.entries(this.yard.zones || {})) {
+      if (!this.zones.some((z) => String(z.zone) === key)) continue;
       points.forEach((point, index) => {
         const marker = L.marker(point, {
           draggable: true,
@@ -593,32 +698,13 @@ class YardMap {
       if (window.confirm?.(`Remove the outline of ${this._zoneName(Number(button.dataset.zone))}?`) === false) return;
       this._save({ zone: Number(button.dataset.zone), shape: null });
     } else if (act === "apple-save") {
-      const form = this.root.querySelector(".yard-apple-form");
-      const field = (name) => form?.querySelector(`[name=${name}]`)?.value || "";
-      this._busy = true;
-      this._renderControls();
-      try {
-        const result = await this.hass.callWS({
-          type: `${DOMAIN}/panel/yard/apple_key`,
-          team_id: field("team_id"),
-          key_id: field("key_id"),
-          private_key: field("private_key"),
-        });
-        this.controller.yard.apple = result.apple;
-        this._changingApple = false;
-        this.apple?.destroy();
-        this.apple = undefined;
-      } catch (error) {
-        this.panel._showNotice(error?.message || "Unable to save the Apple key.", true);
-      }
-      this._busy = false;
-      this._renderControls();
-      this._syncLayers();
+      this._saveApple();
     } else if (act === "apple-change") {
       this._changingApple = true;
       this._renderControls();
     } else if (act === "apple-cancel") {
       this._changingApple = false;
+      this._apple = undefined;
       this._renderControls();
     } else if (act === "apple-clear") {
       if (window.confirm?.("Remove the Apple MapKit key from Home Assistant?") === false) return;
@@ -646,7 +732,31 @@ class YardMap {
   _onChange(event) {
     if (event.target.dataset?.yardChange === "background") {
       this._save({ background: event.target.value });
+    } else if (event.target.dataset?.yardChange === "p8") {
+      this._readP8(event.target.files?.[0]);
+      event.target.value = "";
     }
+  }
+
+  _onInput(event) {
+    const key = event.target.dataset?.yardInput;
+    if (!key) return;
+    const draft = this._appleDraft();
+    draft[key] = key === "pem" ? event.target.value : event.target.value.toUpperCase();
+    if (key !== "pem") event.target.value = draft[key];
+    if (key === "pem") draft.fileName = "";
+    const save = this.root.querySelector('[data-yard-act="apple-save"]');
+    if (save) save.disabled = this._busy || !this._appleReady();
+    // A dropped file plus a full Team ID is everything: save without a click.
+    if (key === "teamId" && draft.fileName && this._appleReady() && !this._busy) this._saveApple();
+  }
+
+  _onDrag(event) {
+    const zone = event.target.closest?.("[data-yard-drop]");
+    if (!zone) return;
+    event.preventDefault();
+    zone.classList.toggle("over", event.type === "dragover" || event.type === "dragenter");
+    if (event.type === "drop") this._readP8(event.dataTransfer?.files?.[0]);
   }
 }
 
@@ -812,6 +922,24 @@ class RainbirdExtendedPanel extends HTMLElement {
         this._render();
       });
     });
+    this.shadowRoot.querySelectorAll('[data-action="hide-zone"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        this._pendingHide = `${button.dataset.entryId}:${button.dataset.zone}`;
+        this._render();
+      });
+    });
+    this.shadowRoot.querySelectorAll('[data-action="cancel-hide-zone"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        this._pendingHide = undefined;
+        this._render();
+      });
+    });
+    this.shadowRoot.querySelectorAll('[data-action="confirm-hide-zone"]').forEach((button) => {
+      button.addEventListener("click", () => this._setZoneHidden(button, true));
+    });
+    this.shadowRoot.querySelectorAll('[data-action="show-zone"]').forEach((button) => {
+      button.addEventListener("click", () => this._setZoneHidden(button, false));
+    });
     this.shadowRoot.querySelectorAll('[data-action="set-number"]').forEach((button) => {
       button.addEventListener("click", () => this._setNumber(button));
     });
@@ -892,16 +1020,15 @@ class RainbirdExtendedPanel extends HTMLElement {
       ${controller.stop_button ? `<p class="stop-note">${this._stopAction(controller) === STOP_ACTION_TURN_OFF ? "Stops watering and turns the controller off. Programs won't run until it's turned back on." : "Stops active watering only. Configured programs remain enabled."}</p>` : ""}
       ${this._weatherAndRainDelay(controller)}
       ${zones.length ? `<div class="yard-slot" data-yard-slot="${this._escape(controller.entry_id)}"></div>` : ""}
-      ${
-        controller.programs?.length
-          ? `<div class="program-section"><h3>Programs</h3><div class="programs">${controller.programs.map((program) => this._programCard(program, this._turnedOff(controller))).join("")}</div></div>`
-          : ""
-      }
+      ${this._programsSection(controller)}
       ${
         zones.length
-          ? `<h3>Zone configuration</h3><div class="zones">${zones.map((zone) => this._zoneCard(zone)).join("")}</div>`
-          : `<p class="muted">Zone configuration entities are not available yet.</p>`
+          ? `<h3>Zone configuration</h3><div class="zones">${zones.map((zone) => this._zoneCard(zone, controller.entry_id)).join("")}</div>`
+          : controller.hidden_zones?.length
+            ? ""
+            : `<p class="muted">Zone configuration entities are not available yet.</p>`
       }
+      ${this._hiddenZones(controller)}
     </section>`;
   }
 
@@ -1022,6 +1149,14 @@ class RainbirdExtendedPanel extends HTMLElement {
     });
   }
 
+  // Only programs that are set up; no section at all when none are.
+  _programsSection(controller) {
+    const programs = (controller.programs || []).filter((program) => program.configured);
+    if (!programs.length) return "";
+    const turnedOff = this._turnedOff(controller);
+    return `<div class="program-section"><h3>Programs</h3><div class="programs">${programs.map((program) => this._programCard(program, turnedOff)).join("")}</div></div>`;
+  }
+
   _programCard(program, turnedOff = false) {
     const label = program.name
       ? `Program ${program.letter} · ${program.name}`
@@ -1095,12 +1230,51 @@ class RainbirdExtendedPanel extends HTMLElement {
     }
   }
 
-  _zoneCard(zone) {
+  _zoneCard(zone, entryId = "") {
     const name = zone.name || `Zone ${zone.zone}`;
+    const key = `${entryId}:${zone.zone}`;
+    const hide = entryId
+      ? `<button class="secondary compact" data-action="hide-zone" data-entry-id="${this._escape(entryId)}" data-zone="${zone.zone}" aria-label="Hide ${this._escape(name)}">Hide</button>`
+      : "";
+    const confirm = this._pendingHide === key
+      ? `<div class="zone-hide"><p>Hide ${this._escape(name)}? Its Rain Bird Extended entities are turned off and it leaves this dashboard. Rain Bird's own switch for it isn't changed, so the controller's schedule can still run it.</p>
+          <div class="zone-hide-actions"><button class="danger compact" data-action="confirm-hide-zone" data-entry-id="${this._escape(entryId)}" data-zone="${zone.zone}">Hide zone</button>
+          <button class="secondary compact" data-action="cancel-hide-zone">Cancel</button></div></div>`
+      : "";
     return `<article class="zone">
-      <h4>${this._escape(name)}</h4>
+      <div class="zone-head"><h4>${this._escape(name)}</h4>${hide}</div>
+      ${confirm}
       <div class="numbers">${zone.numbers.map((number) => this._numberControl(number, name)).join("")}</div>
     </article>`;
+  }
+
+  // Zones turned off from here, each with a way back.
+  _hiddenZones(controller) {
+    const hidden = controller.hidden_zones || [];
+    if (!hidden.length) return "";
+    return `<div class="hidden-zones"><h3>Hidden zones</h3><div class="hidden-zone-list">${hidden.map((zone) =>
+      `<span class="hidden-zone">${this._escape(zone.name)}<button class="secondary compact" data-action="show-zone" data-entry-id="${this._escape(controller.entry_id)}" data-zone="${zone.zone}">Show</button></span>`).join("")}</div>
+      <p class="muted">Hidden zones have their Rain Bird Extended entities turned off.</p></div>`;
+  }
+
+  async _setZoneHidden(button, hidden) {
+    button.disabled = true;
+    try {
+      await this._hass.callWS({
+        type: "rainbird_extended/panel/zone_hidden",
+        entry_id: button.dataset.entryId,
+        zone: Number(button.dataset.zone),
+        hidden,
+      });
+      this._pendingHide = undefined;
+      this._showNotice(hidden ? "Zone hidden." : "Zone shown. Its settings come back in a moment.");
+      await this._refresh();
+      // Showing a zone reloads Rain Bird Extended; ask again once it's back.
+      if (!hidden) setTimeout(() => this._refresh().catch(() => {}), 4000);
+    } catch (error) {
+      button.disabled = false;
+      this._showNotice(error?.message || "Unable to change the zone.", true);
+    }
   }
 
   _numberControl(number, zoneName) {
@@ -1556,7 +1730,7 @@ class RainbirdExtendedPanel extends HTMLElement {
       .weather-section{margin-top:22px}.weather-layout{display:grid;grid-template-columns:minmax(0,3fr) minmax(230px,1fr);gap:16px}.forecast-panel,.rain-delay-panel{border:1px solid var(--border);border-radius:10px;padding:16px}.weather-section h3{margin:0 0 12px}.forecast-days{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}.forecast-day{border:1px solid var(--border);border-radius:8px;padding:10px}.forecast-day h4{margin:0 0 6px}.forecast-day p{font-size:12px;margin-top:4px}.forecast-condition{text-transform:capitalize}.rain-delay-panel .number-row{margin:8px 0 12px}.rain-delay-panel .muted{line-height:1.5}
       .program-section{margin-top:22px}.program-section h3{margin:0 0 12px}.programs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.program{border:1px solid var(--border);border-radius:10px;padding:13px 14px}.program h4{margin:0 0 9px}.program-details{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.program-state{display:inline-flex;border-radius:16px;padding:4px 9px;font-size:12px;font-weight:600;background:var(--secondary-background-color,#f1f3f4);color:var(--secondary-text-color)}.program-state.configured{background:var(--success-color,#2e7d32);color:var(--text-primary-color,#fff)}.program-state.turned-off{background:var(--disabled-text-color,#757575);color:var(--text-primary-color,#fff)}.program-next{font-size:13px;color:var(--secondary-text-color)}
       button{font:inherit;border:0;border-radius:8px;padding:10px 16px;cursor:pointer}button:disabled{opacity:.55;cursor:wait}.primary{background:var(--blue);color:var(--text-primary-color,#fff);font-weight:600}.secondary{background:var(--secondary-background-color,#f1f3f4);color:var(--primary-text-color)}.compact{padding:6px 10px;font-size:12px}
-      .zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.zone{border:1px solid var(--border);border-radius:10px;padding:14px}.number-row{display:grid;gap:6px;margin:12px 0;font-size:13px}.number-input,.number-control{display:flex;align-items:center;gap:7px}.number-input input,.number-control input{min-width:0;flex:1}.number-input small,.number-control small,.number-control output{color:var(--secondary-text-color)}input,select{font:inherit;color:var(--primary-text-color);background:var(--input-fill-color,var(--card-background-color,#fff));border:1px solid var(--border);border-radius:7px;padding:9px;min-width:0;width:100%}input[type=range],input[type=checkbox]{width:auto}
+      .zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.zone{border:1px solid var(--border);border-radius:10px;padding:14px}.zone-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.zone-head h4{margin:0}.zone-hide{margin:10px 0;padding:10px;border-radius:8px;background:var(--secondary-background-color,#f1f3f4);font-size:13px}.zone-hide p{margin:0 0 8px}.zone-hide-actions{display:flex;gap:8px}.hidden-zones{margin-top:18px}.hidden-zones h3{margin:0 0 10px}.hidden-zone-list{display:flex;flex-wrap:wrap;gap:8px}.hidden-zone{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:18px;padding:4px 4px 4px 12px;font-size:13px}.number-row{display:grid;gap:6px;margin:12px 0;font-size:13px}.number-input,.number-control{display:flex;align-items:center;gap:7px}.number-input input,.number-control input{min-width:0;flex:1}.number-input small,.number-control small,.number-control output{color:var(--secondary-text-color)}input,select{font:inherit;color:var(--primary-text-color);background:var(--input-fill-color,var(--card-background-color,#fff));border:1px solid var(--border);border-radius:7px;padding:9px;min-width:0;width:100%}input[type=range],input[type=checkbox]{width:auto}
       .controller{min-width:0}.empty{text-align:center;padding:48px 22px}.empty h2{margin-bottom:8px}
       .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
       .skeleton{--skeleton-base:color-mix(in srgb,var(--primary-text-color,#000) 8%,transparent);--skeleton-shine:color-mix(in srgb,var(--primary-text-color,#000) 14%,transparent);background:linear-gradient(90deg,var(--skeleton-base) 0%,var(--skeleton-shine) 50%,var(--skeleton-base) 100%);background-size:200% 100%;border-radius:8px;animation:rbx-shimmer 1.4s ease-in-out infinite}
@@ -1576,6 +1750,6 @@ class RainbirdExtendedPanel extends HTMLElement {
 }
 
 // The yard map's pure helpers, for the tests.
-RainbirdExtendedPanel.yard = { yardAreaM2, yardAreaText, yardMinutesLeft, yardTiles, yardMapRect, YardMap };
+RainbirdExtendedPanel.yard = { yardAreaM2, yardAreaText, yardMinutesLeft, yardTiles, yardMapRect, yardP8Key, YardMap };
 
 customElements.define("rainbird-extended-panel", RainbirdExtendedPanel);

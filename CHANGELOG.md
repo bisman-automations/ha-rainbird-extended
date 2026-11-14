@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-11-14
+
+### Added
+
+- **Drop in your Apple Maps key.** Drop the `.p8` file you downloaded from Apple onto the Yard section (or tap to choose it). The Key ID is read from the file name, so you only type your Team ID, and the key saves by itself. Pasting the key still works.
+- **A clear message when Apple turns the key down**, pointing to the Team ID and the MapKit JS setting.
+- **Hide zones you don't use.** Each zone card in the panel has a **Hide** button. A hidden zone has its Rain Bird Extended entities turned off and leaves the panel and the yard map; **Show** under **Hidden zones** brings it back. Rain Bird's own zone switch isn't changed.
+
+### Changed
+
+- **Programs that aren't set up are no longer shown** in the panel. The Programs section lists only the controller's set-up programs, and is left out when there are none.
+
 ## [2.1.1] - 2026-11-14
 
 ### Changed
@@ -374,6 +386,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[2.2.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.1.1...v2.2.0
 [2.1.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.3...v2.1.0
 [2.0.3]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.2...v2.0.3

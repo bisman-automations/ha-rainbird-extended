@@ -54,6 +54,7 @@ def async_setup_panel_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_save_yard)
     websocket_api.async_register_command(hass, websocket_apple_key)
     websocket_api.async_register_command(hass, websocket_apple_token)
+    websocket_api.async_register_command(hass, websocket_zone_hidden)
     hass.data[_API_REGISTERED] = True
 
 
@@ -219,6 +220,75 @@ async def websocket_apple_token(
         connection.send_error(msg["id"], "not_set_up", str(err))
         return
     connection.send_result(msg["id"], {"token": token})
+
+
+def _hidden_zones(
+    device_registry: dr.DeviceRegistry, entry_id: str, uid: str | None
+) -> list[dict[str, Any]]:
+    """Zones whose Rain Bird Extended device is turned off, by name."""
+    if not uid:
+        return []
+    hidden = []
+    for device in dr.async_entries_for_config_entry(device_registry, entry_id):
+        if device.disabled_by is None:
+            continue
+        for domain, value in device.identifiers:
+            zone = value.removeprefix(f"{uid}-")
+            if domain == DOMAIN and zone != value and zone.isdigit():
+                hidden.append(
+                    {
+                        "zone": int(zone),
+                        "name": device.name_by_user or device.name or f"Zone {zone}",
+                    }
+                )
+    return sorted(hidden, key=lambda item: item["zone"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/panel/zone_hidden",
+        vol.Required("entry_id"): str,
+        vol.Required("zone"): vol.All(vol.Coerce(int), vol.Range(min=1, max=64)),
+        vol.Required("hidden"): bool,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def websocket_zone_hidden(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Hide a zone: turn off its Rain Bird Extended device, or turn it back on.
+
+    Turning the device off turns off its entities, so the zone leaves the
+    panel. Rain Bird's own zone switch and device are not touched.
+    """
+    entry = hass.config_entries.async_get_entry(msg["entry_id"])
+    rainbird_entry = (
+        hass.config_entries.async_get_entry(entry.data[CONF_RAINBIRD_ENTRY_ID])
+        if entry is not None and entry.domain == DOMAIN
+        else None
+    )
+    registry = dr.async_get(hass)
+    device = (
+        registry.async_get_device_by_identifier(
+            (DOMAIN, f"{rainbird_entry.unique_id}-{msg['zone']}"), entry.entry_id
+        )
+        if entry is not None and rainbird_entry and rainbird_entry.unique_id
+        else None
+    )
+    if entry is None or device is None:
+        connection.send_error(msg["id"], "not_found", "That zone wasn't found")
+        return
+    if msg["hidden"]:
+        registry.async_update_device(device.id, disabled_by=dr.DeviceEntryDisabler.USER)
+    elif device.disabled_by is not None:
+        registry.async_update_device(device.id, disabled_by=None)
+        # Bring the zone's entities back now rather than after Home
+        # Assistant's 30-second wait.
+        hass.config_entries.async_schedule_reload(entry.entry_id)
+    connection.send_result(msg["id"], {"zone": msg["zone"], "hidden": msg["hidden"]})
 
 
 def _forecast_summary(forecast: dict[str, Any]) -> dict[str, Any] | None:
@@ -529,7 +599,18 @@ def _panel_config(hass: HomeAssistant) -> dict[str, list[dict[str, Any]]]:
                 "stop_button": stop_button,
                 # On/off entity that says whether the controller is turned on.
                 "power_entity": entry.options.get(CONF_POWER_ENTITY),
-                "zones": zones,
+                "hidden_zones": (
+                    hidden := _hidden_zones(
+                        device_registry,
+                        entry.entry_id,
+                        rainbird_entry.unique_id if rainbird_entry else None,
+                    )
+                ),
+                "zones": [
+                    zone
+                    for zone in zones
+                    if zone["zone"] not in {item["zone"] for item in hidden}
+                ],
             }
         )
     return {"controllers": controllers}

@@ -512,3 +512,42 @@ test("yard map lines Apple Maps up with Leaflet's view", () => {
   // Apple draws its own map; Leaflet gets no tiles.
   assert.equal(yardTiles("apple", "key"), null);
 });
+
+test("yard map reads the Key ID and key from a dropped .p8 file", () => {
+  const { yardP8Key } = Panel.yard;
+  const pem = "-----BEGIN PRIVATE KEY-----\nMIGT\n-----END PRIVATE KEY-----\n";
+  assert.deepEqual({ ...yardP8Key("AuthKey_abc123defg.p8", pem) }, { pem: pem.trim(), keyId: "ABC123DEFG" });
+  assert.equal(yardP8Key("my key.p8", pem).keyId, "");
+  assert.equal(yardP8Key("AuthKey_ABC123DEFG.p8", "not a key"), null);
+});
+
+test("program section leaves out programs that aren't set up", () => {
+  const panel = new Panel();
+  panel._turnedOff = () => false;
+  const section = panel._programsSection({
+    programs: [
+      { letter: "A", name: "Morning", configured: true, next_run: "2026-10-12" },
+      { letter: "B", name: "", configured: false },
+      { letter: "C", name: "", configured: false },
+    ],
+  });
+  assert.match(section, /Program A · Morning/);
+  assert.doesNotMatch(section, /Program B|Program C|Not configured/);
+  assert.equal(panel._programsSection({ programs: [{ letter: "B", configured: false }] }), "");
+  assert.equal(panel._programsSection({}), "");
+});
+
+test("zones can be hidden and shown again from the panel", () => {
+  const panel = new Panel();
+  const zone = { zone: 5, name: "Sprinkler 5", numbers: [] };
+  const card = panel._zoneCard(zone, "entry");
+  assert.match(card, /data-action="hide-zone"[^>]*data-zone="5"/);
+  assert.doesNotMatch(card, /Hide zone/);
+  panel._pendingHide = "entry:5";
+  assert.match(panel._zoneCard(zone, "entry"), /Hide zone/);
+
+  const hidden = panel._hiddenZones({ entry_id: "entry", hidden_zones: [{ zone: 5, name: "Sprinkler <5>" }] });
+  assert.match(hidden, /Sprinkler &lt;5&gt;/);
+  assert.match(hidden, /data-action="show-zone"[^>]*data-zone="5"/);
+  assert.equal(panel._hiddenZones({ hidden_zones: [] }), "");
+});

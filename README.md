@@ -43,6 +43,18 @@ irrigation** button is set in the settings under **Stop irrigation button**:
   turned back on, for example for the winter. It needs a switch or input
   boolean as Controller power.
 
+### Hiding zones you don't use
+
+Each zone card in the panel's **Zone configuration** has a **Hide** button. Hiding
+a zone turns off its Rain Bird Extended device, so its valve, sensors and
+settings are turned off too, and the zone leaves the panel and the yard map. Its
+yard outline is kept. Rain Bird's own switch for that zone isn't changed, so a
+program on the controller can still run it.
+
+Hidden zones are listed under **Hidden zones** at the bottom of the panel;
+**Show** turns them back on. Turning the zone's device back on under
+**Settings → Devices & services** does the same.
+
 ### Yard map
 
 The panel's **Yard** section shows your zones on a map of your yard. Pick a
@@ -113,10 +125,16 @@ Program](https://developer.apple.com/programs/).
    file name).
 5. **Find your Team ID.** Choose **Membership details** in your account. The
    10-character **Team ID** is listed there.
-6. In the panel's Yard section, pick **Apple Maps**. Enter the Team ID and Key
-   ID, open the `.p8` file in a text editor and paste everything in it,
-   including the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----`
-   lines, then choose **Save Apple key**.
+6. In the panel's Yard section, pick **Apple Maps**, then drop the `.p8` file
+   on the box under the map (or tap the box and choose it). The Key ID is read
+   from the file name. Type your Team ID and the key saves by itself.
+
+   If the file was renamed, also type the Key ID. You can also choose **Paste
+   the key instead** and paste everything in the `.p8` file, including the
+   `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` lines.
+
+If Apple doesn't accept the key, the panel says so when the map loads. Check
+the Team ID, and that the key has MapKit JS turned on.
 
 The private key stays in Home Assistant. The map in your browser only gets
 tokens signed with it that last 30 minutes and work only at the address you

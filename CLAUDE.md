@@ -126,7 +126,14 @@ connection and coordinators; it never opens its own connection.
   id, P-256 `.p8`) is kept once for the integration in the yard Store
   (`panel/yard/apple_key`, checked by `clean_apple`), and the browser only
   ever gets 30-minute ES256 tokens for its origin (`panel/yard/apple_token`,
-  PyJWT). Never send the private key to the panel.
+  PyJWT). Never send the private key to the panel. The panel reads a dropped
+  or chosen `.p8` (`yardP8Key`: Key ID from `AuthKey_<id>.p8`), asks only for
+  the Team ID, and saves once all three are there; MapKit's `error` event
+  reports a refused key.
+- Hidden zones: `panel/zone_hidden` turns our zone device off
+  (`DeviceEntryDisabler.USER`) or back on (then reloads the entry). The panel
+  lists any zone whose device is off under `hidden_zones` and leaves it out of
+  `zones` and the yard map. Rain Bird's own devices are never touched.
 - `strings.json` and `translations/en.json` hold the same text (see the
   shared rules). Update both, and `icons.json`, with new entities or options.
 
