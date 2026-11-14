@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-11-14
+
+### Added
+
+- **Yard map.** The sidebar panel has a new **Yard** section: draw each zone over a map of your yard, and see it light up blue with the minutes left while it waters. Tap a zone to see when it last ran, run it now or stop watering. Each zone shows its size. The background can be US aerial photos (no account needed), sharper Esri satellite photos with your own free ArcGIS key, Apple Maps satellite with your own Apple Developer MapKit key (the private key stays in Home Assistant), or no map at all. See [Yard map](README.md#yard-map).
+
 ## [2.0.3] - 2026-11-14
 
 ### Changed
@@ -362,6 +368,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[2.1.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.3...v2.1.0
 [2.0.3]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.0...v2.0.1

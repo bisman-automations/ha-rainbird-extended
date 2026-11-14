@@ -155,6 +155,9 @@ def test_panel_config_includes_zone_numbers(
         {
             "zone": 1,
             "name": "Front Boulevard",
+            "valve_entity": None,
+            "time_remaining_entity": None,
+            "last_run_entity": None,
             "numbers": [
                 {
                     "entity_id": entity.entity_id,

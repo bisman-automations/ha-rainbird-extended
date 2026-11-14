@@ -61,6 +61,7 @@ from .coordinator import RainbirdExtendedCoordinator
 from .devices import async_follow_renames, async_sync_devices
 from .entity import find_device
 from .panel import async_register_panel, async_unregister_panel
+from .yard import async_get_yard_store
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -272,8 +273,9 @@ async def async_unload_entry(
 async def async_remove_entry(
     hass: HomeAssistant, entry: RainbirdExtendedConfigEntry
 ) -> None:
-    """Clear our repair. Rain Bird's switches are not touched."""
+    """Clear our repair and the yard map. Rain Bird's switches are not touched."""
     ir.async_delete_issue(hass, DOMAIN, _issue_id(entry))
+    await (await async_get_yard_store(hass)).async_remove(entry.entry_id)
 
 
 def _issue_id(entry: ConfigEntry) -> str:

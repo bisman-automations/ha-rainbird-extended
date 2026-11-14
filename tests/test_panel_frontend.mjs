@@ -482,3 +482,33 @@ test("Stop can also turn the controller off", async () => {
     ["notice", "Irrigation stopped and the controller turned off."],
   ]);
 });
+
+test("yard map works out zone areas, minutes left and map tiles", () => {
+  const { yardAreaM2, yardAreaText, yardMinutesLeft, yardTiles } = Panel.yard;
+  // About 10 m by 10 m at 45° north.
+  const square = [[45, -100], [45, -99.9998728], [45.0000899, -99.9998728], [45.0000899, -100]];
+  assert.ok(Math.abs(yardAreaM2(square) - 100) < 1);
+  assert.equal(yardAreaM2([[45, -100], [45, -99.9]]), 0);
+  assert.equal(yardAreaText(100, false), "100 m²");
+  assert.equal(yardAreaText(100, true), `${(1076).toLocaleString()} sq ft`);
+  assert.equal(yardAreaText(0, true), "");
+
+  const now = Date.parse("2026-06-01T06:00:00Z");
+  assert.equal(yardMinutesLeft("2026-06-01T06:10:30Z", now), 11);
+  assert.equal(yardMinutesLeft("2026-06-01T05:59:00Z", now), null);
+  assert.equal(yardMinutesLeft("unknown", now), null);
+
+  assert.match(yardTiles("aerial").url, /nationalmap\.gov/);
+  assert.equal(yardTiles("esri", ""), null);
+  assert.match(yardTiles("esri", "a key").url, /token=a%20key$/);
+  assert.equal(yardTiles("plain", "x"), null);
+});
+
+test("yard map lines Apple Maps up with Leaflet's view", () => {
+  const { yardMapRect, yardTiles } = Panel.yard;
+  // At zoom 1 the world is 512 px; the left half is x 0–0.5.
+  assert.deepEqual([...yardMapRect(0, 0, 256, 512, 1)], [0, 0, 0.5, 1]);
+  assert.deepEqual([...yardMapRect(128, 256, 384, 512, 1)], [0.25, 0.5, 0.5, 0.5]);
+  // Apple draws its own map; Leaflet gets no tiles.
+  assert.equal(yardTiles("apple", "key"), null);
+});

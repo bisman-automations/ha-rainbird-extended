@@ -107,6 +107,26 @@ connection and coordinators; it never opens its own connection.
 - `panel.py` and `frontend/rainbird-extended-panel.js`: the admin sidebar
   panel. It's a plain web component with no build step. The module URL
   carries the version to bust browser caches.
+- `yard.py` and the Yard section of the panel: zone outlines drawn on a map,
+  in their own Store (`rainbird_extended.yard`, per config entry: `background`
+  `aerial`/`esri`/`plain`, the user's `esri_key`, `zones` of `[lat, lng]`
+  points), never in options. Saved through `rainbird_extended/panel/yard`
+  (admin), sent with `panel/config` as each controller's `yard`, and removed in
+  `async_remove_entry`. The panel's `YardMap` uses Leaflet 1.9.4 served from
+  `frontend/vendor/leaflet` (loaded on first use, `noConflict()` so Home
+  Assistant's own `window.L` is untouched). The map element lives outside the
+  panel's redraw and is moved into each new `data-yard-slot`. Zones carry
+  `valve_entity`, `time_remaining_entity` and `last_run_entity` for the live
+  colors and the Run/Stop popup (`valve.open_valve` / `valve.close_valve`).
+  Esri tiles need the user's own ArcGIS key (keyless Esri tiles aren't
+  allowed for apps); USGS aerial tiles are public domain, US only, level 16.
+  Apple Maps: MapKit JS from Apple's CDN draws a satellite map under a
+  transparent Leaflet, kept on Leaflet's exact view (`yardMapRect`, both Web
+  Mercator); drawing still happens in Leaflet. The MapKit key (team id, key
+  id, P-256 `.p8`) is kept once for the integration in the yard Store
+  (`panel/yard/apple_key`, checked by `clean_apple`), and the browser only
+  ever gets 30-minute ES256 tokens for its origin (`panel/yard/apple_token`,
+  PyJWT). Never send the private key to the panel.
 - `strings.json` and `translations/en.json` hold the same text (see the
   shared rules). Update both, and `icons.json`, with new entities or options.
 

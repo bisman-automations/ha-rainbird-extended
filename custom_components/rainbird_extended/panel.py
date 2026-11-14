@@ -30,6 +30,7 @@ from .const import (
     DOMAIN,
 )
 from .programs import ConfiguredProgram, parse_programs, program_letter
+from .yard import BACKGROUNDS, async_get_yard_store
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +51,9 @@ def async_setup_panel_api(hass: HomeAssistant) -> None:
         return
     websocket_api.async_register_command(hass, websocket_get_panel_config)
     websocket_api.async_register_command(hass, websocket_set_rain_delay)
+    websocket_api.async_register_command(hass, websocket_save_yard)
+    websocket_api.async_register_command(hass, websocket_apple_key)
+    websocket_api.async_register_command(hass, websocket_apple_token)
     hass.data[_API_REGISTERED] = True
 
 
@@ -64,7 +68,53 @@ async def websocket_get_panel_config(
     """Return safe controller and per-zone configuration summaries."""
     result = _panel_config(hass)
     await _async_add_forecasts(hass, result["controllers"])
+    yard = await async_get_yard_store(hass)
+    for controller in result["controllers"]:
+        controller["yard"] = yard.get(controller["entry_id"], hass.config.country)
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/panel/yard",
+        vol.Required("entry_id"): str,
+        vol.Optional("background"): vol.In(BACKGROUNDS),
+        vol.Optional("esri_key"): str,
+        vol.Optional("zone"): vol.All(vol.Coerce(int), vol.Range(min=1, max=64)),
+        vol.Optional("shape"): vol.Any(None, list),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def websocket_save_yard(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Save the map background, the ArcGIS key, or one zone's outline.
+
+    A zone with ``shape: null`` has its outline removed.
+    """
+    entry = hass.config_entries.async_get_entry(msg["entry_id"])
+    if entry is None or entry.domain != DOMAIN:
+        connection.send_error(
+            msg["id"], "not_found", "Rain Bird Extended entry not found"
+        )
+        return
+    yard = await async_get_yard_store(hass)
+    try:
+        await yard.async_update(
+            entry.entry_id,
+            background=msg.get("background"),
+            esri_key=msg.get("esri_key"),
+            zone=msg.get("zone"),
+            shape=msg.get("shape"),
+            remove_zone="zone" in msg and "shape" in msg and msg["shape"] is None,
+        )
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid", str(err))
+        return
+    connection.send_result(msg["id"], yard.get(entry.entry_id, hass.config.country))
 
 
 async def _async_add_forecasts(
@@ -113,6 +163,62 @@ async def _async_add_forecasts(
         ][:10]
         if not controller["forecast"]:
             controller["forecast_error"] = "The weather entity returned no forecast."
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/panel/yard/apple_key",
+        vol.Optional("team_id"): str,
+        vol.Optional("key_id"): str,
+        vol.Optional("private_key"): str,
+        vol.Optional("clear"): bool,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def websocket_apple_key(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Keep or forget the Apple MapKit key used for the Apple Maps background."""
+    yard = await async_get_yard_store(hass)
+    try:
+        if msg.get("clear"):
+            await yard.async_clear_apple()
+        else:
+            await yard.async_set_apple(
+                msg.get("team_id", ""),
+                msg.get("key_id", ""),
+                msg.get("private_key", ""),
+            )
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid", str(err))
+        return
+    connection.send_result(msg["id"], {"apple": yard.get("")["apple"]})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/panel/yard/apple_token",
+        vol.Optional("origin"): vol.All(str, vol.Match(r"^https?://[^/\s]+$")),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def websocket_apple_token(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """A 30-minute MapKit JS token for the page asking, signed in Home Assistant."""
+    yard = await async_get_yard_store(hass)
+    try:
+        token = yard.apple_token(msg.get("origin"))
+    except ValueError as err:
+        connection.send_error(msg["id"], "not_set_up", str(err))
+        return
+    connection.send_result(msg["id"], {"token": token})
 
 
 def _forecast_summary(forecast: dict[str, Any]) -> dict[str, Any] | None:
@@ -328,6 +434,7 @@ def _panel_config(hass: HomeAssistant) -> dict[str, list[dict[str, Any]]]:
             ]
         )
         numbers_by_zone: dict[int, list[dict[str, Any]]] = {}
+        zone_entities: dict[int, dict[str, str]] = {}
         zone_names = _zone_names(
             hass, device_registry, rainbird_entities, extended_entities
         )
@@ -346,6 +453,18 @@ def _panel_config(hass: HomeAssistant) -> dict[str, list[dict[str, Any]]]:
                 if len(parts) == 3 and parts[1].isdigit() and parts[2] == "valve":
                     zone = int(parts[1])
                     zone_ids.add(zone)
+                    zone_entities.setdefault(zone, {})["valve"] = entity.entity_id
+                continue
+            if entity.domain == "sensor" and entity.disabled_by is None:
+                parts = entity.unique_id.rsplit("-", 2)
+                if (
+                    len(parts) == 3
+                    and parts[1].isdigit()
+                    and parts[2] in ("time_remaining", "last_run")
+                ):
+                    zone_entities.setdefault(int(parts[1]), {})[parts[2]] = (
+                        entity.entity_id
+                    )
                 continue
             if entity.domain != "number" or entity.disabled_by is not None:
                 continue
@@ -372,6 +491,11 @@ def _panel_config(hass: HomeAssistant) -> dict[str, list[dict[str, Any]]]:
             {
                 "zone": zone,
                 "name": zone_names.get(zone) or f"Zone {zone}",
+                "valve_entity": zone_entities.get(zone, {}).get("valve"),
+                "time_remaining_entity": zone_entities.get(zone, {}).get(
+                    "time_remaining"
+                ),
+                "last_run_entity": zone_entities.get(zone, {}).get("last_run"),
                 "numbers": sorted(
                     numbers_by_zone.get(zone, []), key=lambda item: item["entity_id"]
                 ),

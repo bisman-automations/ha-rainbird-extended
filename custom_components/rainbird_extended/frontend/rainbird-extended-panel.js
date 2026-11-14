@@ -2,6 +2,655 @@ const DOMAIN = "rainbird_extended";
 const STOP_ACTION_STOP_IRRIGATION = "stop_irrigation";
 const STOP_ACTION_TURN_OFF = "stop_and_turn_off";
 
+// --- Yard map ---------------------------------------------------------
+// Zone outlines drawn over an aerial photo (or a plain background), with each
+// zone lit up while it waters. Leaflet, the map library Home Assistant's own
+// map uses, is served from this integration (vendor/leaflet) and loaded the
+// first time a yard map is shown.
+
+const YARD_STATIC = `/${DOMAIN}_static/vendor/leaflet`;
+const YARD_COLORS = ["#43a047", "#fb8c00", "#8e24aa", "#00acc1", "#d81b60", "#c0ca33", "#6d4c41", "#3949ab"];
+const YARD_WATERING = "#1e88e5";
+const YARD_BACKGROUNDS = {
+  aerial: "Aerial photo (USGS, United States)",
+  esri: "Satellite (Esri, needs a free ArcGIS key)",
+  apple: "Apple Maps (needs an Apple Developer MapKit key)",
+  plain: "No map",
+};
+
+let yardLeaflet;
+// Leaflet sets window.L when it loads; noConflict() puts back whatever was
+// there before (Home Assistant's own copy, if its map has loaded).
+const yardLoadLeaflet = () => {
+  if (!yardLeaflet) {
+    yardLeaflet = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = `${YARD_STATIC}/leaflet.js?v=1.9.4`;
+      script.onload = () => resolve(window.L.noConflict());
+      script.onerror = () => {
+        yardLeaflet = undefined;
+        reject(new Error("The map couldn't load."));
+      };
+      document.head.appendChild(script);
+    });
+  }
+  return yardLeaflet;
+};
+
+// Apple's MapKit JS, loaded from Apple the first time the Apple Maps
+// background is shown. Its tokens are signed in Home Assistant with the
+// user's own MapKit key and asked for over the websocket, for this page's
+// origin only; the private key never reaches the browser.
+let yardMapKit;
+let yardMapKitHass;
+const yardLoadMapKit = (hass) => {
+  yardMapKitHass = hass;
+  if (!yardMapKit) {
+    yardMapKit = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js";
+      script.crossOrigin = "anonymous";
+      script.onload = () => {
+        const mapkit = window.mapkit;
+        mapkit.init({
+          authorizationCallback: (done) => {
+            yardMapKitHass
+              .callWS({ type: `${DOMAIN}/panel/yard/apple_token`, origin: window.location.origin })
+              .then((result) => done(result.token))
+              .catch(() => done(""));
+          },
+        });
+        resolve(mapkit);
+      };
+      script.onerror = () => {
+        yardMapKit = undefined;
+        reject(new Error("Apple Maps couldn't load."));
+      };
+      document.head.appendChild(script);
+    });
+  }
+  return yardMapKit;
+};
+
+// The part of the world a Leaflet view shows, as MapKit's MapRect numbers
+// (0–1 across the Web Mercator world). Both maps use Web Mercator, so the
+// Apple map can sit under Leaflet showing exactly the same area.
+const yardMapRect = (minX, minY, maxX, maxY, zoom) => {
+  const world = 256 * 2 ** zoom;
+  return [minX / world, minY / world, (maxX - minX) / world, (maxY - minY) / world];
+};
+
+// Square meters inside an outline of [lat, lng] points (flat earth: fine for a yard).
+const yardAreaM2 = (points) => {
+  if (!points || points.length < 3) return 0;
+  const lat0 = (points.reduce((sum, p) => sum + p[0], 0) / points.length) * Math.PI / 180;
+  const radius = 6371008.8;
+  const xy = points.map(([lat, lng]) => [
+    (lng * Math.PI / 180) * radius * Math.cos(lat0),
+    (lat * Math.PI / 180) * radius,
+  ]);
+  let total = 0;
+  xy.forEach(([x1, y1], i) => {
+    const [x2, y2] = xy[(i + 1) % xy.length];
+    total += x1 * y2 - x2 * y1;
+  });
+  return Math.abs(total) / 2;
+};
+
+const yardAreaText = (m2, imperial) => {
+  if (!m2) return "";
+  if (imperial) return `${Math.round(m2 * 10.7639).toLocaleString()} sq ft`;
+  return `${Math.round(m2).toLocaleString()} m²`;
+};
+
+// Whole minutes until an end time, or null when it's past or unknown.
+const yardMinutesLeft = (endIso, now = Date.now()) => {
+  const end = Date.parse(endIso || "");
+  if (Number.isNaN(end) || end <= now) return null;
+  return Math.max(1, Math.ceil((end - now) / 60000));
+};
+
+// The tile layer for a background, or null for none.
+const yardTiles = (background, key) => {
+  if (background === "aerial") {
+    return {
+      url: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}",
+      attribution: "USDA, USGS The National Map: Orthoimagery",
+      maxNativeZoom: 16,
+    };
+  }
+  if (background === "esri" && key) {
+    return {
+      url: `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=${encodeURIComponent(key)}`,
+      attribution: "Powered by Esri · Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+      maxNativeZoom: 19,
+    };
+  }
+  return null;
+};
+
+const YARD_STYLE = `
+  .yard{margin-top:22px}
+  .yard-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px}
+  .yard-head h3{margin:0;flex:1 1 auto}
+  .yard-head select{width:auto;min-width:0;max-width:100%;flex:0 1 auto;text-overflow:ellipsis}
+  .yard select,.yard input[type=text]{font:inherit;font-size:14px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card-background-color,#fff);color:var(--primary-text-color)}
+  .yard-map{height:460px;border-radius:12px;overflow:hidden;border:1px solid var(--border);background:var(--secondary-background-color,#e5e5e5);position:relative;z-index:0}
+  .yard-apple,.yard-leaflet{position:absolute;inset:0}
+  .yard-apple{z-index:0;pointer-events:none}.yard-apple[hidden]{display:none}
+  .yard-leaflet{z-index:1}
+  .yard-leaflet.over-apple.leaflet-container{background:transparent}
+  .yard-apple-form{display:grid;gap:8px;margin-bottom:10px}
+  .yard-apple-form .ids{display:flex;flex-wrap:wrap;gap:8px}
+  .yard-apple-form input{flex:1 1 140px}
+  .yard-apple-form textarea{font:12px/1.4 monospace;min-height:90px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--card-background-color,#fff);color:var(--primary-text-color)}
+  .yard-map.drawing{cursor:crosshair}
+  .yard-tools{display:grid;gap:8px;margin:0 0 10px}
+  .yard-zone{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:10px}
+  .yard-zone .dot{width:14px;height:14px;border-radius:50%;flex:none}
+  .yard-zone .name{flex:1 1 140px;font-weight:500}
+  .yard-zone.active{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue)}
+  .yard-note{font-size:13px;color:var(--secondary-text-color);margin-top:8px}
+  .yard-key{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+  .yard-key input{flex:1 1 260px}
+  .yard button.compact{padding:6px 12px;font-size:13px}
+  .yard-label{background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:6px;box-shadow:none;font-size:12px;font-weight:600;padding:2px 6px;white-space:nowrap}
+  .yard-label::before{display:none}
+  .yard-vertex{width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:#fff;border:2px solid var(--blue);box-sizing:border-box}
+  .yard-home{width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:var(--blue);border:2px solid #fff}
+  .yard-pop{font-family:inherit;min-width:180px}
+  .yard-pop b{font-size:14px}.yard-pop p{margin:4px 0;color:#555}
+  .yard-pop .btns{display:flex;gap:6px;margin-top:8px}
+  .yard-pop button{padding:6px 12px;font-size:13px}
+  path.yard-watering{animation:yard-pulse 1.6s ease-in-out infinite}
+  @keyframes yard-pulse{50%{fill-opacity:.85}}
+  @media (prefers-reduced-motion:reduce){path.yard-watering{animation:none}}
+  @media(max-width:600px){.yard-map{height:360px}}
+`;
+
+class YardMap {
+  constructor(panel, entryId) {
+    this.panel = panel;
+    this.entryId = entryId;
+    this.editing = false;
+    this.drawing = null;
+    this.shapes = new Map();
+    this.vertices = [];
+    this.root = document.createElement("section");
+    this.root.className = "yard";
+    this.root.innerHTML = `<link rel="stylesheet" href="${YARD_STATIC}/leaflet.css?v=1.9.4"><style>${YARD_STYLE}</style>
+      <div class="yard-head"></div><div class="yard-key-slot"></div><div class="yard-tools"></div>
+      <div class="yard-map" role="region" aria-label="Yard map"><div class="yard-apple" hidden></div><div class="yard-leaflet"></div></div><div class="yard-note yard-hint"></div>`;
+    this.root.addEventListener("click", (event) => this._onClick(event));
+    this.root.addEventListener("change", (event) => this._onChange(event));
+    this._ticker = setInterval(() => this.refresh(), 30000);
+  }
+
+  get hass() {
+    return this.panel._hass;
+  }
+
+  get imperial() {
+    return this.hass?.config?.unit_system?.length === "mi";
+  }
+
+  _esc(value) {
+    return this.panel._escape(value);
+  }
+
+  // Put the map in its slot after the panel redraws, and bring it up to date.
+  mount(slot, controller) {
+    this.controller = controller;
+    if (this.root.parentElement !== slot) slot.appendChild(this.root);
+    this._renderControls();
+    if (this.map) {
+      this.map.invalidateSize();
+      this._syncLayers();
+      return;
+    }
+    yardLoadLeaflet()
+      .then((L) => {
+        this.L = L;
+        if (!this.map) this._createMap();
+      })
+      .catch((error) => {
+        this.root.querySelector(".yard-leaflet").innerHTML = `<p class="yard-note" style="padding:16px">${this._esc(error.message)}</p>`;
+      });
+  }
+
+  destroy() {
+    clearInterval(this._ticker);
+    this.apple?.destroy();
+    this.map?.remove();
+    this.root.remove();
+  }
+
+  get yard() {
+    return this.controller?.yard || { background: "plain", esri_key: "", zones: {}, areas: {} };
+  }
+
+  get zones() {
+    return this.controller?.zones || [];
+  }
+
+  _color(zone) {
+    const index = this.zones.findIndex((z) => z.zone === zone);
+    return YARD_COLORS[(index < 0 ? zone : index) % YARD_COLORS.length];
+  }
+
+  _createMap() {
+    const L = this.L;
+    const el = this.root.querySelector(".yard-leaflet");
+    el.innerHTML = "";
+    const home = [this.hass?.config?.latitude ?? 0, this.hass?.config?.longitude ?? 0];
+    this.map = L.map(el, { zoomControl: true, maxZoom: 21, attributionControl: true });
+    this.map.attributionControl.setPrefix(false);
+    this.map.setView(home, 19);
+    this.home = L.marker(home, { icon: L.divIcon({ className: "yard-home", iconSize: null }), interactive: false, keyboard: false });
+    this.map.on("click", (event) => this._mapClick(event));
+    this.map.on("move zoom resize zoomend moveend", () => this._syncApple());
+    this.map.on("zoomanim", (event) => this._syncApple(event));
+    this._syncLayers();
+    const all = Object.values(this.yard.zones || {}).flat();
+    if (all.length) this.map.fitBounds(L.latLngBounds(all), { padding: [24, 24], maxZoom: 20 });
+    requestAnimationFrame(() => this.map?.invalidateSize());
+  }
+
+  // --- controls ------------------------------------------------------
+
+  _renderControls() {
+    const yard = this.yard;
+    const busy = this._busy ? "disabled" : "";
+    const head = `<h3>Yard</h3>
+      <select data-yard-change="background" aria-label="Map background" ${busy}>
+        ${Object.entries(YARD_BACKGROUNDS).map(([value, label]) => `<option value="${value}" ${yard.background === value ? "selected" : ""}>${this._esc(label)}</option>`).join("")}
+      </select>
+      ${this.editing
+        ? `<button class="primary compact" data-yard-act="done" ${this.drawing ? "disabled" : ""}>Done</button>`
+        : `<button class="secondary compact" data-yard-act="edit">${Object.keys(yard.zones || {}).length ? "Edit zones" : "Draw zones"}</button>`}`;
+    this._put(".yard-head", head);
+
+    const keyHtml = yard.background === "apple"
+      ? this._appleKeyHtml(yard, busy)
+      : yard.background === "esri"
+      ? `<div class="yard-key"><input type="text" autocomplete="off" spellcheck="false" placeholder="ArcGIS API key" value="${this._esc(yard.esri_key || "")}" aria-label="ArcGIS API key">
+          <button class="secondary compact" data-yard-act="save-key" ${busy}>Save key</button></div>
+         ${yard.esri_key ? "" : '<p class="yard-note" style="margin:-4px 0 10px">Create a free API key with an ArcGIS Location Platform account, with access to basemaps, and paste it here.</p>'}`
+      : "";
+    this._put(".yard-key-slot", keyHtml);
+
+    let tools = "";
+    if (this.editing) {
+      tools = this.zones.map((zone) => {
+        const shape = yard.zones?.[String(zone.zone)];
+        const drawingThis = this.drawing?.zone === zone.zone;
+        const area = shape ? yardAreaText(yard.areas?.[String(zone.zone)] ?? yardAreaM2(shape), this.imperial) : "Not drawn yet";
+        const buttons = drawingThis
+          ? `<button class="primary compact" data-yard-act="finish" ${this.drawing.points.length >= 3 ? "" : "disabled"}>Finish (${this.drawing.points.length} points)</button>
+             <button class="secondary compact" data-yard-act="undo" ${this.drawing.points.length ? "" : "disabled"}>Undo point</button>
+             <button class="secondary compact" data-yard-act="cancel">Cancel</button>`
+          : this.drawing
+            ? ""
+            : `<button class="secondary compact" data-yard-act="draw" data-zone="${zone.zone}" ${busy}>${shape ? "Redraw" : "Draw"}</button>
+               ${shape ? `<button class="secondary compact" data-yard-act="remove" data-zone="${zone.zone}" ${busy}>Remove</button>` : ""}`;
+        return `<div class="yard-zone ${drawingThis ? "active" : ""}"><span class="dot" style="background:${this._color(zone.zone)}"></span>
+          <span class="name">${this._esc(zone.name)}</span><span class="muted">${this._esc(area)}</span>${buttons}</div>`;
+      }).join("");
+    }
+    this._put(".yard-tools", tools);
+
+    const note = this.drawing
+      ? `Tap the map around the edge of ${this._esc(this._zoneName(this.drawing.zone))}, then Finish. Tap the first point to close the shape.`
+      : this.editing
+        ? "Drag a corner to move it. Shapes are saved as you go."
+        : Object.keys(yard.zones || {}).length
+          ? "Tap a zone to run or stop it."
+          : "Draw each zone over your yard to see it light up while it waters.";
+    this._put(".yard-hint", note);
+    this.root.querySelector(".yard-map")?.classList.toggle("drawing", Boolean(this.drawing));
+  }
+
+  _appleKeyHtml(yard, busy) {
+    if (yard.apple && !this._changingApple) {
+      return `<div class="yard-key"><span class="muted" style="flex:1 1 auto">Apple MapKit key ${this._esc(yard.apple.key_id)} (team ${this._esc(yard.apple.team_id)})</span>
+        <button class="secondary compact" data-yard-act="apple-change" ${busy}>Change key</button>
+        <button class="secondary compact" data-yard-act="apple-clear" ${busy}>Remove key</button></div>`;
+    }
+    return `<div class="yard-apple-form">
+      <p class="yard-note" style="margin:0">In your Apple Developer account, create a Maps ID and a key with MapKit JS turned on, then paste the key's details here. The private key stays in Home Assistant; the map gets short-lived tokens signed with it.</p>
+      <div class="ids"><input type="text" name="team_id" placeholder="Team ID" autocomplete="off" spellcheck="false" aria-label="Apple Team ID">
+        <input type="text" name="key_id" placeholder="Key ID" autocomplete="off" spellcheck="false" aria-label="MapKit Key ID"></div>
+      <textarea name="private_key" placeholder="-----BEGIN PRIVATE KEY-----" spellcheck="false" aria-label="Private key (.p8 file contents)"></textarea>
+      <div class="ids"><button class="primary compact" data-yard-act="apple-save" ${busy}>Save Apple key</button>
+        ${yard.apple ? `<button class="secondary compact" data-yard-act="apple-cancel">Cancel</button>` : ""}</div>
+    </div>`;
+  }
+
+  // The Apple map under Leaflet, matched to Leaflet's view.
+  async _syncAppleBackground() {
+    const yard = this.yard;
+    const wanted = yard.background === "apple" && Boolean(yard.apple);
+    const el = this.root.querySelector(".yard-apple");
+    const leaflet = this.root.querySelector(".yard-leaflet");
+    leaflet?.classList.toggle("over-apple", wanted);
+    if (!wanted) {
+      this.apple?.destroy();
+      this.apple = undefined;
+      if (el) el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    if (this.apple || this._appleLoading) return;
+    this._appleLoading = true;
+    try {
+      const mapkit = await yardLoadMapKit(this.hass);
+      if (this.yard.background !== "apple") return;
+      this.mapkit = mapkit;
+      this.apple = new mapkit.Map(el, {
+        mapType: mapkit.Map.MapTypes.Satellite,
+        showsCompass: mapkit.FeatureVisibility.Hidden,
+        showsScale: mapkit.FeatureVisibility.Hidden,
+        showsZoomControl: false,
+        showsMapTypeControl: false,
+        showsUserLocationControl: false,
+        isRotationEnabled: false,
+        isScrollEnabled: false,
+        isZoomEnabled: false,
+      });
+      this._syncApple();
+    } catch (error) {
+      this.panel._showNotice(error?.message || "Apple Maps couldn't load.", true);
+    } finally {
+      this._appleLoading = false;
+    }
+  }
+
+  _syncApple(zoomAnim) {
+    if (!this.apple || !this.map || !this.mapkit) return;
+    let rect;
+    if (zoomAnim) {
+      const center = this.map.project(zoomAnim.center, zoomAnim.zoom);
+      const half = this.map.getSize().divideBy(2);
+      rect = yardMapRect(center.x - half.x, center.y - half.y, center.x + half.x, center.y + half.y, zoomAnim.zoom);
+    } else {
+      const bounds = this.map.getPixelBounds();
+      rect = yardMapRect(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y, this.map.getZoom());
+    }
+    const mapRect = new this.mapkit.MapRect(...rect);
+    if (zoomAnim) this.apple.setVisibleMapRectAnimated(mapRect, true);
+    else this.apple.visibleMapRect = mapRect;
+  }
+
+  _put(selector, html) {
+    const el = this.root.querySelector(selector);
+    if (el && el.innerHTML !== html) el.innerHTML = html;
+  }
+
+  _zoneName(zone) {
+    return this.zones.find((z) => z.zone === zone)?.name || `Zone ${zone}`;
+  }
+
+  // --- layers --------------------------------------------------------
+
+  _syncLayers() {
+    if (!this.map) return;
+    const L = this.L;
+    const yard = this.yard;
+    const tileKey = `${yard.background}|${yard.esri_key || ""}`;
+    if (tileKey !== this._tileKey) {
+      this._tileKey = tileKey;
+      this.tiles?.remove();
+      this.tiles = undefined;
+      const tiles = yardTiles(yard.background, yard.esri_key);
+      if (tiles) {
+        this.tiles = L.tileLayer(tiles.url, { maxNativeZoom: tiles.maxNativeZoom, maxZoom: 21, attribution: tiles.attribution }).addTo(this.map);
+      }
+      if (tiles || yard.background === "apple") this.home.remove();
+      else this.home.addTo(this.map);
+    }
+    for (const [zone, layer] of this.shapes) {
+      if (!yard.zones?.[String(zone)]) {
+        layer.remove();
+        this.shapes.delete(zone);
+      }
+    }
+    for (const [key, points] of Object.entries(yard.zones || {})) {
+      const zone = Number(key);
+      let layer = this.shapes.get(zone);
+      if (!layer) {
+        layer = L.polygon(points, { weight: 2 }).addTo(this.map);
+        layer.on("click", (event) => this._shapeClick(zone, event));
+        this.shapes.set(zone, layer);
+      } else {
+        layer.setLatLngs(points);
+      }
+    }
+    this._syncVertices();
+    this._syncAppleBackground();
+    this.refresh();
+  }
+
+  _syncVertices() {
+    this.vertices.forEach((marker) => marker.remove());
+    this.vertices = [];
+    if (!this.map || !this.editing || this.drawing) return;
+    const L = this.L;
+    for (const [key, points] of Object.entries(this.yard.zones || {})) {
+      points.forEach((point, index) => {
+        const marker = L.marker(point, {
+          draggable: true,
+          icon: L.divIcon({ className: "yard-vertex", iconSize: null }),
+          title: `${this._zoneName(Number(key))}, corner ${index + 1}`,
+        }).addTo(this.map);
+        marker.on("drag", () => {
+          const moved = this.yard.zones[key].map((p, i) => (i === index ? [marker.getLatLng().lat, marker.getLatLng().lng] : p));
+          this.shapes.get(Number(key))?.setLatLngs(moved);
+        });
+        marker.on("dragend", () => {
+          const shape = this.yard.zones[key].map((p, i) => (i === index ? [marker.getLatLng().lat, marker.getLatLng().lng] : p));
+          this._save({ zone: Number(key), shape });
+        });
+        this.vertices.push(marker);
+      });
+    }
+  }
+
+  // Colors, labels and the watering pulse, from the live states.
+  refresh() {
+    if (!this.map) return;
+    const states = this.hass?.states || {};
+    for (const [zone, layer] of this.shapes) {
+      const info = this.zones.find((z) => z.zone === zone);
+      const valve = info?.valve_entity ? states[info.valve_entity]?.state : undefined;
+      const watering = valve === "open" || valve === "opening";
+      const left = watering ? yardMinutesLeft(states[info?.time_remaining_entity]?.state) : null;
+      const color = watering ? YARD_WATERING : this._color(zone);
+      const key = `${color}|${left}|${info?.name}|${this.editing}`;
+      if (layer._yardKey === key) continue;
+      layer._yardKey = key;
+      layer.setStyle({ color: watering ? "#fff" : color, fillColor: color, fillOpacity: watering ? 0.6 : 0.3, weight: watering ? 3 : 2 });
+      layer.getElement?.()?.classList.toggle("yard-watering", watering);
+      const label = `${info?.name || `Zone ${zone}`}${watering ? ` · ${left ? `${left} min left` : "watering"}` : ""}`;
+      if (layer.getTooltip()) layer.setTooltipContent(this._esc(label));
+      else layer.bindTooltip(this._esc(label), { permanent: true, direction: "center", className: "yard-label" });
+    }
+  }
+
+  // --- drawing -------------------------------------------------------
+
+  _mapClick(event) {
+    if (!this.drawing) return;
+    const points = this.drawing.points;
+    const latlng = [event.latlng.lat, event.latlng.lng];
+    if (points.length >= 3) {
+      const first = this.map.latLngToContainerPoint(points[0]);
+      if (first.distanceTo(event.containerPoint) < 14) {
+        this._finish();
+        return;
+      }
+    }
+    points.push(latlng);
+    this._drawPreview();
+    this._renderControls();
+  }
+
+  _drawPreview() {
+    const L = this.L;
+    this.drawing.layers.forEach((layer) => layer.remove());
+    const color = this._color(this.drawing.zone);
+    const points = this.drawing.points;
+    this.drawing.layers = [
+      L.polyline(points, { color, weight: 3, dashArray: "6 6" }).addTo(this.map),
+      ...points.map((point, i) => L.circleMarker(point, { radius: i === 0 ? 7 : 5, color: "#fff", weight: 2, fillColor: color, fillOpacity: 1 }).addTo(this.map)),
+    ];
+  }
+
+  _startDrawing(zone) {
+    this.drawing = { zone, points: [], layers: [] };
+    this.map?.doubleClickZoom.disable();
+    this._syncVertices();
+    this._renderControls();
+  }
+
+  _stopDrawing() {
+    this.drawing?.layers.forEach((layer) => layer.remove());
+    this.drawing = null;
+    this.map?.doubleClickZoom.enable();
+    this._syncVertices();
+    this._renderControls();
+  }
+
+  async _finish() {
+    if (!this.drawing || this.drawing.points.length < 3) return;
+    const { zone, points } = this.drawing;
+    this._stopDrawing();
+    await this._save({ zone, shape: points });
+  }
+
+  // --- saving and actions --------------------------------------------
+
+  async _save(change) {
+    this._busy = true;
+    this._renderControls();
+    try {
+      const yard = await this.hass.callWS({ type: `${DOMAIN}/panel/yard`, entry_id: this.entryId, ...change });
+      this.controller.yard = yard;
+    } catch (error) {
+      this.panel._showNotice(error?.message || "Unable to save the yard map.", true);
+    }
+    this._busy = false;
+    this._renderControls();
+    this._syncLayers();
+  }
+
+  _shapeClick(zone, event) {
+    if (this.editing || this.drawing) return;
+    const L = this.L;
+    const info = this.zones.find((z) => z.zone === zone);
+    if (!info) return;
+    const states = this.hass?.states || {};
+    const valve = info.valve_entity ? states[info.valve_entity]?.state : undefined;
+    const watering = valve === "open" || valve === "opening";
+    const left = watering ? yardMinutesLeft(states[info.time_remaining_entity]?.state) : null;
+    const lastRun = Date.parse(states[info.last_run_entity]?.state || "");
+    const area = yardAreaText(this.yard.areas?.[String(zone)], this.imperial);
+    const html = `<div class="yard-pop"><b>${this._esc(info.name)}</b>
+      ${area ? `<p>${this._esc(area)}</p>` : ""}
+      <p>${watering ? `Watering${left ? `, ${left} min left` : ""}` : Number.isNaN(lastRun) ? "Idle" : `Last ran ${this._esc(new Date(lastRun).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }))}`}</p>
+      ${info.valve_entity ? `<div class="btns">${watering
+        ? `<button class="danger" data-yard-act="stop" data-entity="${this._esc(info.valve_entity)}">Stop watering</button>`
+        : `<button class="primary" data-yard-act="run" data-entity="${this._esc(info.valve_entity)}">Run now</button>`}</div>` : ""}
+    </div>`;
+    const popup = L.popup({ closeButton: true }).setLatLng(event.latlng).setContent(html).openOn(this.map);
+    // Leaflet stops clicks inside a popup from reaching the page.
+    popup.getElement()?.addEventListener("click", (click) => this._onClick(click));
+  }
+
+  async _onClick(event) {
+    const button = event.target.closest?.("[data-yard-act]");
+    if (!button || button.disabled) return;
+    const act = button.dataset.yardAct;
+    if (act === "edit") {
+      this.editing = true;
+      this.map?.closePopup();
+      this._syncVertices();
+      this._renderControls();
+      this.refresh();
+    } else if (act === "done") {
+      this.editing = false;
+      this._stopDrawing();
+    } else if (act === "draw") {
+      this._startDrawing(Number(button.dataset.zone));
+    } else if (act === "finish") {
+      this._finish();
+    } else if (act === "undo") {
+      this.drawing?.points.pop();
+      this._drawPreview();
+      this._renderControls();
+    } else if (act === "cancel") {
+      this._stopDrawing();
+    } else if (act === "remove") {
+      if (window.confirm?.(`Remove the outline of ${this._zoneName(Number(button.dataset.zone))}?`) === false) return;
+      this._save({ zone: Number(button.dataset.zone), shape: null });
+    } else if (act === "apple-save") {
+      const form = this.root.querySelector(".yard-apple-form");
+      const field = (name) => form?.querySelector(`[name=${name}]`)?.value || "";
+      this._busy = true;
+      this._renderControls();
+      try {
+        const result = await this.hass.callWS({
+          type: `${DOMAIN}/panel/yard/apple_key`,
+          team_id: field("team_id"),
+          key_id: field("key_id"),
+          private_key: field("private_key"),
+        });
+        this.controller.yard.apple = result.apple;
+        this._changingApple = false;
+        this.apple?.destroy();
+        this.apple = undefined;
+      } catch (error) {
+        this.panel._showNotice(error?.message || "Unable to save the Apple key.", true);
+      }
+      this._busy = false;
+      this._renderControls();
+      this._syncLayers();
+    } else if (act === "apple-change") {
+      this._changingApple = true;
+      this._renderControls();
+    } else if (act === "apple-cancel") {
+      this._changingApple = false;
+      this._renderControls();
+    } else if (act === "apple-clear") {
+      if (window.confirm?.("Remove the Apple MapKit key from Home Assistant?") === false) return;
+      try {
+        await this.hass.callWS({ type: `${DOMAIN}/panel/yard/apple_key`, clear: true });
+        this.controller.yard.apple = null;
+      } catch (error) {
+        this.panel._showNotice(error?.message || "Unable to remove the Apple key.", true);
+      }
+      this._renderControls();
+      this._syncLayers();
+    } else if (act === "save-key") {
+      const value = this.root.querySelector(".yard-key input")?.value || "";
+      this._save({ esri_key: value });
+    } else if (act === "run" || act === "stop") {
+      this.map?.closePopup();
+      try {
+        await this.hass.callService("valve", act === "run" ? "open_valve" : "close_valve", { entity_id: button.dataset.entity });
+      } catch (error) {
+        this.panel._showNotice(error?.message || "Unable to change watering.", true);
+      }
+    }
+  }
+
+  _onChange(event) {
+    if (event.target.dataset?.yardChange === "background") {
+      this._save({ background: event.target.value });
+    }
+  }
+}
+
+
 class RainbirdExtendedPanel extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
@@ -13,6 +662,7 @@ class RainbirdExtendedPanel extends HTMLElement {
       this._refresh().catch(() => this._updateControllerStatuses());
     } else {
       this._updateControllerStatuses();
+      this._yards?.forEach((yard) => yard.refresh());
     }
   }
 
@@ -134,6 +784,7 @@ class RainbirdExtendedPanel extends HTMLElement {
         ${this._flow ? this._flowDialog() : ""}
         ${this._pendingStop ? this._stopConfirmation() : ""}
       </main>`;
+    this._mountYards(controllers);
     this.shadowRoot.addEventListener("click", this._onRefreshClick ||= (event) => {
       // Delegated, because the button is swapped while refreshing.
       if (!event.target.closest?.('[data-action="refresh"]:not([disabled])')) return;
@@ -195,6 +846,29 @@ class RainbirdExtendedPanel extends HTMLElement {
     });
   }
 
+  // Yard maps live outside the redraw: each is moved into its new slot.
+  _mountYards(controllers) {
+    this._yards ||= new Map();
+    const seen = new Set();
+    for (const controller of controllers) {
+      const slot = this.shadowRoot.querySelector(`[data-yard-slot="${CSS.escape(controller.entry_id)}"]`);
+      if (!slot) continue;
+      seen.add(controller.entry_id);
+      let yard = this._yards.get(controller.entry_id);
+      if (!yard) {
+        yard = new YardMap(this, controller.entry_id);
+        this._yards.set(controller.entry_id, yard);
+      }
+      yard.mount(slot, controller);
+    }
+    for (const [entryId, yard] of this._yards) {
+      if (!seen.has(entryId)) {
+        yard.destroy();
+        this._yards.delete(entryId);
+      }
+    }
+  }
+
   _controllerCard(controller) {
     const status = this._controllerStatus(controller);
     const zones = controller.zones || [];
@@ -217,6 +891,7 @@ class RainbirdExtendedPanel extends HTMLElement {
       </div>
       ${controller.stop_button ? `<p class="stop-note">${this._stopAction(controller) === STOP_ACTION_TURN_OFF ? "Stops watering and turns the controller off. Programs won't run until it's turned back on." : "Stops active watering only. Configured programs remain enabled."}</p>` : ""}
       ${this._weatherAndRainDelay(controller)}
+      ${zones.length ? `<div class="yard-slot" data-yard-slot="${this._escape(controller.entry_id)}"></div>` : ""}
       ${
         controller.programs?.length
           ? `<div class="program-section"><h3>Programs</h3><div class="programs">${controller.programs.map((program) => this._programCard(program, this._turnedOff(controller))).join("")}</div></div>`
@@ -882,7 +1557,7 @@ class RainbirdExtendedPanel extends HTMLElement {
       .program-section{margin-top:22px}.program-section h3{margin:0 0 12px}.programs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.program{border:1px solid var(--border);border-radius:10px;padding:13px 14px}.program h4{margin:0 0 9px}.program-details{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.program-state{display:inline-flex;border-radius:16px;padding:4px 9px;font-size:12px;font-weight:600;background:var(--secondary-background-color,#f1f3f4);color:var(--secondary-text-color)}.program-state.configured{background:var(--success-color,#2e7d32);color:var(--text-primary-color,#fff)}.program-state.turned-off{background:var(--disabled-text-color,#757575);color:var(--text-primary-color,#fff)}.program-next{font-size:13px;color:var(--secondary-text-color)}
       button{font:inherit;border:0;border-radius:8px;padding:10px 16px;cursor:pointer}button:disabled{opacity:.55;cursor:wait}.primary{background:var(--blue);color:var(--text-primary-color,#fff);font-weight:600}.secondary{background:var(--secondary-background-color,#f1f3f4);color:var(--primary-text-color)}.compact{padding:6px 10px;font-size:12px}
       .zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.zone{border:1px solid var(--border);border-radius:10px;padding:14px}.number-row{display:grid;gap:6px;margin:12px 0;font-size:13px}.number-input,.number-control{display:flex;align-items:center;gap:7px}.number-input input,.number-control input{min-width:0;flex:1}.number-input small,.number-control small,.number-control output{color:var(--secondary-text-color)}input,select{font:inherit;color:var(--primary-text-color);background:var(--input-fill-color,var(--card-background-color,#fff));border:1px solid var(--border);border-radius:7px;padding:9px;min-width:0;width:100%}input[type=range],input[type=checkbox]{width:auto}
-      .empty{text-align:center;padding:48px 22px}.empty h2{margin-bottom:8px}
+      .controller{min-width:0}.empty{text-align:center;padding:48px 22px}.empty h2{margin-bottom:8px}
       .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
       .skeleton{--skeleton-base:color-mix(in srgb,var(--primary-text-color,#000) 8%,transparent);--skeleton-shine:color-mix(in srgb,var(--primary-text-color,#000) 14%,transparent);background:linear-gradient(90deg,var(--skeleton-base) 0%,var(--skeleton-shine) 50%,var(--skeleton-base) 100%);background-size:200% 100%;border-radius:8px;animation:rbx-shimmer 1.4s ease-in-out infinite}
       .skeleton.line{height:12px;margin:0 0 12px;width:70%}.skeleton.eyebrow-line{width:140px;height:10px}.skeleton.title-line{width:55%;height:22px}.skeleton.short-line{width:30%}.skeleton.heading-line{width:120px;height:14px;margin-top:22px}
@@ -899,5 +1574,8 @@ class RainbirdExtendedPanel extends HTMLElement {
     </style>`;
   }
 }
+
+// The yard map's pure helpers, for the tests.
+RainbirdExtendedPanel.yard = { yardAreaM2, yardAreaText, yardMinutesLeft, yardTiles, yardMapRect, YardMap };
 
 customElements.define("rainbird-extended-panel", RainbirdExtendedPanel);

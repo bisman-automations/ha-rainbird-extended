@@ -43,6 +43,43 @@ irrigation** button is set in the settings under **Stop irrigation button**:
   turned back on, for example for the winter. It needs a switch or input
   boolean as Controller power.
 
+### Yard map
+
+The panel's **Yard** section shows your zones on a map of your yard. Pick a
+background, then choose **Draw zones**:
+
+1. Choose **Draw** next to a zone.
+2. Tap around the edge of that zone on the map, then **Finish** (or tap the
+   first point again).
+3. Drag a corner to adjust it. Shapes are saved as you go, and **Done** ends
+   editing.
+
+Each zone shows its name and size. While a zone waters it turns blue and pulses,
+with the minutes left on it. Tap a zone to see when it last ran, and to run it
+now or stop watering.
+
+Backgrounds:
+
+- **Aerial photo (USGS, United States)**: public aerial photos from the U.S.
+  Geological Survey. No account needed. They are about 1 meter per pixel, so a
+  yard looks soft up close. This is the default in the United States.
+- **Satellite (Esri, needs a free ArcGIS key)**: sharper satellite and aerial
+  photos worldwide. Create a free account on the ArcGIS Location Platform, make
+  an API key with access to basemaps, and paste it under the map. The key is
+  kept by Rain Bird Extended and only shown to administrators.
+- **Apple Maps (needs an Apple Developer MapKit key)**: Apple's satellite
+  view. It needs a paid Apple Developer account. In it, create a Maps ID, then a
+  key with MapKit JS turned on, and download the key's `.p8` file. Under the
+  map, enter your Team ID and the Key ID and paste the contents of the `.p8`
+  file, then **Save Apple key**. The private key stays in Home Assistant: the
+  map only gets 30-minute tokens signed with it, each for the address you
+  opened Home Assistant at. The key is shared by all your controllers.
+- **No map**: just the shapes on a plain background, with a dot at your home
+  location. The default outside the United States.
+
+The shapes are kept for each controller and stay the same if you change the
+background. The map needs an internet connection for the photos.
+
 ### On each zone
 
 | Entity | Example ID | What it does |
@@ -467,4 +504,5 @@ Releases are drafted from [CHANGELOG.md](CHANGELOG.md); see [CLAUDE.md](CLAUDE.m
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). The yard map uses [Leaflet](https://leafletjs.com)
+(BSD 2-Clause, see `custom_components/rainbird_extended/frontend/vendor/leaflet/LICENSE`).
