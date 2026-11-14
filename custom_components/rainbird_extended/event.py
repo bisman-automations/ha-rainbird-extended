@@ -41,6 +41,16 @@ class RainbirdZoneRunEvent(RainbirdExtendedZoneEntity, EventEntity):
         super().__init__(coordinator, zone, "run")
         self._attr_event_types = [EVENT_STARTED, EVENT_FINISHED]
 
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Keep running when the entity ID is changed (Home Assistant 2026.11+).
+
+        Nothing here is keyed on the entity ID, so the entity carries on as is.
+        """
+        parent = getattr(super(), "async_entity_id_changed", None)
+        if parent is not None:
+            parent(old_entity_id)
+
     async def async_added_to_hass(self) -> None:
         """Listen for runs of this zone."""
         await super().async_added_to_hass()

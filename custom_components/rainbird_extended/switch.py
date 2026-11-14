@@ -114,6 +114,16 @@ class _DailyWeatherSwitch(
         self._attr_is_on = self._default_on
         self._last_check: datetime | None = None
 
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Keep running when the entity ID is changed (Home Assistant 2026.11+).
+
+        Nothing here is keyed on the entity ID, so the entity carries on as is.
+        """
+        parent = getattr(super(), "async_entity_id_changed", None)
+        if parent is not None:
+            parent(old_entity_id)
+
     async def async_added_to_hass(self) -> None:
         """Restore on/off and schedule the daily check."""
         await super().async_added_to_hass()
@@ -264,6 +274,16 @@ class RainbirdFreezeSkip(_DailyWeatherSwitch):
         # One stop at a time. Coordinator updates while the stop is in
         # flight would otherwise stop again for the same freeze.
         self._stop_pending = False
+
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Keep running when the entity ID is changed (Home Assistant 2026.11+).
+
+        Nothing here is keyed on the entity ID, so the entity carries on as is.
+        """
+        parent = getattr(super(), "async_entity_id_changed", None)
+        if parent is not None:
+            parent(old_entity_id)
 
     async def async_added_to_hass(self) -> None:
         """Also watch the temperature sensor."""

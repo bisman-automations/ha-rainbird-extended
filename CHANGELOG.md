@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.3] - 2026-11-14
 
+### Changed
+
+- **Renaming an entity keeps it running.** From Home Assistant 2026.11, when you change one of this integration's entity IDs, the entity moves to its new ID in place instead of being removed and added again, as Home Assistant now expects. Everything keeps working the same.
+
 ### Fixed
 
 - **Tests ready for Home Assistant 2026.11.** Home Assistant 2026.11 keeps the states it restores after a restart by entity rather than by entity ID, so the tests that check restored run times and last runs now set those states up the way a real restart does. Restoring after a restart works as before. Nothing changes for you.

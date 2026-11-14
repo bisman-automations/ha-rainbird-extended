@@ -72,6 +72,16 @@ class RainbirdZoneTimeRemaining(
         super().__init__(coordinator, zone, "time_remaining")
         self._last_end: datetime | None = None
 
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Keep running when the entity ID is changed (Home Assistant 2026.11+).
+
+        Nothing here is keyed on the entity ID, so the entity carries on as is.
+        """
+        parent = getattr(super(), "async_entity_id_changed", None)
+        if parent is not None:
+            parent(old_entity_id)
+
     async def async_added_to_hass(self) -> None:
         """Restore when the last run ended."""
         await super().async_added_to_hass()
@@ -115,6 +125,16 @@ class RainbirdZoneNextRun(RainbirdExtendedZoneEntity, RestoreEntity, SensorEntit
         super().__init__(coordinator, zone, "next_run")
         self._last_start: datetime | None = None
         self._estimated = False
+
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Keep running when the entity ID is changed (Home Assistant 2026.11+).
+
+        Nothing here is keyed on the entity ID, so the entity carries on as is.
+        """
+        parent = getattr(super(), "async_entity_id_changed", None)
+        if parent is not None:
+            parent(old_entity_id)
 
     async def async_added_to_hass(self) -> None:
         """Restore the start the estimate counts from."""
@@ -167,6 +187,16 @@ class RainbirdZoneLastRun(RainbirdExtendedZoneEntity, RestoreSensor):
         """Initialize the sensor."""
         super().__init__(coordinator, zone, "last_run")
         self._restored: ZoneRun | None = None
+
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Keep running when the entity ID is changed (Home Assistant 2026.11+).
+
+        Nothing here is keyed on the entity ID, so the entity carries on as is.
+        """
+        parent = getattr(super(), "async_entity_id_changed", None)
+        if parent is not None:
+            parent(old_entity_id)
 
     async def async_added_to_hass(self) -> None:
         """Restore the last run from before a restart."""
@@ -224,6 +254,16 @@ class RainbirdZoneWaterUsed(RainbirdExtendedZoneEntity, RestoreSensor):
         self._attr_native_unit_of_measurement = unit
         self._attr_native_value = 0.0
         self._seen_seconds = coordinator.run_seconds.get(zone, 0.0)
+
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Keep running when the entity ID is changed (Home Assistant 2026.11+).
+
+        Nothing here is keyed on the entity ID, so the entity carries on as is.
+        """
+        parent = getattr(super(), "async_entity_id_changed", None)
+        if parent is not None:
+            parent(old_entity_id)
 
     async def async_added_to_hass(self) -> None:
         """Restore the running total."""

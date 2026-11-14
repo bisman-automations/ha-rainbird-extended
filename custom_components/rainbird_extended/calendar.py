@@ -90,6 +90,16 @@ class RainbirdRunHistory(RainbirdExtendedControllerEntity, CalendarEntity):
         # {"zone", "start", "end", "source"}, oldest first.
         self._runs: list[dict[str, Any]] = []
 
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Keep running when the entity ID is changed (Home Assistant 2026.11+).
+
+        Nothing here is keyed on the entity ID, so the entity carries on as is.
+        """
+        parent = getattr(super(), "async_entity_id_changed", None)
+        if parent is not None:
+            parent(old_entity_id)
+
     async def async_added_to_hass(self) -> None:
         """Load the history and record each run as it finishes."""
         await super().async_added_to_hass()
