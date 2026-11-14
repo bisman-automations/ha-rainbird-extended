@@ -64,21 +64,66 @@ Backgrounds:
   Geological Survey. No account needed. They are about 1 meter per pixel, so a
   yard looks soft up close. This is the default in the United States.
 - **Satellite (Esri, needs a free ArcGIS key)**: sharper satellite and aerial
-  photos worldwide. Create a free account on the ArcGIS Location Platform, make
-  an API key with access to basemaps, and paste it under the map. The key is
-  kept by Rain Bird Extended and only shown to administrators.
-- **Apple Maps (needs an Apple Developer MapKit key)**: Apple's satellite
-  view. It needs a paid Apple Developer account. In it, create a Maps ID, then a
-  key with MapKit JS turned on, and download the key's `.p8` file. Under the
-  map, enter your Team ID and the Key ID and paste the contents of the `.p8`
-  file, then **Save Apple key**. The private key stays in Home Assistant: the
-  map only gets 30-minute tokens signed with it, each for the address you
-  opened Home Assistant at. The key is shared by all your controllers.
+  photos worldwide. See [An ArcGIS key for Esri](#an-arcgis-key-for-esri).
+- **Apple Maps (needs an Apple Developer MapKit key)**: Apple's satellite view.
+  See [A MapKit key for Apple Maps](#a-mapkit-key-for-apple-maps).
 - **No map**: just the shapes on a plain background, with a dot at your home
   location. The default outside the United States.
 
 The shapes are kept for each controller and stay the same if you change the
 background. The map needs an internet connection for the photos.
+
+#### An ArcGIS key for Esri
+
+1. Go to [location.arcgis.com](https://location.arcgis.com) and choose
+   **Sign up for free** to make an ArcGIS Location Platform account. (An
+   ArcGIS Online account from work or school doesn't work for this.)
+2. On the dashboard, under **Developer credentials**, choose **Create developer
+   credentials**, then **API key credentials**.
+3. Under **Privileges**, turn on **Location services > Basemaps**. Nothing else
+   is needed.
+4. Pick an expiration date. ArcGIS keys last a year at most, so note the date.
+5. Finish, then copy the API key it shows you. Copy it straight away: ArcGIS
+   only shows it once.
+6. In the panel's Yard section, pick **Satellite (Esri)**, paste the key under
+   the map and choose **Save key**.
+
+When the key expires the photos stop loading. Make a new key on the ArcGIS
+dashboard and paste it in the same way. Rain Bird Extended keeps the key and
+shows it only to administrators.
+
+#### A MapKit key for Apple Maps
+
+You need a paid membership of the [Apple Developer
+Program](https://developer.apple.com/programs/).
+
+1. Sign in at [developer.apple.com/account](https://developer.apple.com/account)
+   and open **Certificates, Identifiers & Profiles**.
+2. **Make a Maps ID.** Choose **Identifiers**, then **+**, pick **Maps IDs** and
+   choose **Continue**. Give it a description (for example *Home Assistant
+   yard map*) and an identifier in reverse-domain form, such as
+   `maps.com.example.yardmap`, then register it.
+3. **Make a key.** Choose **Keys**, then **+**. Name it (for example *Home
+   Assistant MapKit*), tick **MapKit JS**, choose **Configure** and pick the Maps
+   ID from step 2. Save, then **Continue** and **Register**. (The MapKit JS box
+   can only be ticked once a Maps ID exists.)
+4. **Download the key.** Choose **Download** to get a file named like
+   `AuthKey_ABC123DEFG.p8`. Apple lets you download it only once, so keep it
+   somewhere safe. The 10-character **Key ID** is on the key's page (and in the
+   file name).
+5. **Find your Team ID.** Choose **Membership details** in your account. The
+   10-character **Team ID** is listed there.
+6. In the panel's Yard section, pick **Apple Maps**. Enter the Team ID and Key
+   ID, open the `.p8` file in a text editor and paste everything in it,
+   including the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----`
+   lines, then choose **Save Apple key**.
+
+The private key stays in Home Assistant. The map in your browser only gets
+tokens signed with it that last 30 minutes and work only at the address you
+opened Home Assistant at. One key covers all your controllers. To stop using
+it, choose **Remove key**; to replace it, choose **Change key**. If you think the
+key was exposed, revoke it under **Keys** on the Apple Developer site and make a
+new one.
 
 ### On each zone
 
@@ -464,6 +509,20 @@ Open an [issue](https://github.com/bisman-automations/ha-rainbird-extended/issue
 and attach diagnostics: **Settings → Devices & services → Rain Bird Extended →
 ⋮ → Download diagnostics**. They include which Rain Bird switches, program
 buttons and calendar were found; the controller's MAC address is removed.
+
+### The yard map shows no photo
+
+- **Aerial photo (USGS)** only covers the United States. Elsewhere, use Esri,
+  Apple Maps or No map.
+- **Esri**: the key may have expired (they last a year at most) or be missing
+  the **Basemaps** privilege. Make a new key as in
+  [An ArcGIS key for Esri](#an-arcgis-key-for-esri) and paste it in.
+- **Apple Maps**: check that the Team ID and Key ID match the `.p8` file you
+  pasted, that the key has **MapKit JS** turned on with a Maps ID, and that it
+  hasn't been revoked. Browser ad or tracker blockers can also block Apple's
+  map code (`cdn.apple-mapkit.com`).
+- The photos come from the internet, so the device you're viewing on needs to
+  reach them. Your shapes are kept whatever the background shows.
 
 ### Diagnostics and debug logs
 
