@@ -7,10 +7,7 @@ from unittest.mock import MagicMock
 
 from freezegun.api import FrozenDateTimeFactory
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_restore_cache,
-)
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.components.number import (
     ATTR_VALUE,
@@ -21,7 +18,7 @@ from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, State
 from homeassistant.util import dt as dt_util
 
-from .helpers import _advance, _poll_core, _setup, _unload
+from .helpers import _advance, _poll_core, _setup, _unload, restore_states
 
 # Zone 3 isn't in the test controller's schedule, so it's estimated.
 NEXT_RUN = "sensor.rain_bird_sprinkler_3_estimated_next_run"
@@ -83,16 +80,21 @@ async def test_restored_after_restart(
     """The last run's end and the start the estimate counts from survive."""
     last_start = (dt_util.utcnow() - timedelta(hours=30)).replace(microsecond=0)
     last_end = last_start + timedelta(minutes=8)
-    mock_restore_cache(
+    restore_states(
         hass,
+        extended_entry,
         [
-            State(REMAINING, last_end.isoformat()),
-            State(
-                NEXT_RUN,
-                (last_start + timedelta(days=2)).isoformat(),
-                {"last_start": last_start.isoformat(), "estimated": True},
+            (State(REMAINING, last_end.isoformat()), "3-time_remaining", None),
+            (
+                State(
+                    NEXT_RUN,
+                    (last_start + timedelta(days=2)).isoformat(),
+                    {"last_start": last_start.isoformat(), "estimated": True},
+                ),
+                "3-next_run",
+                None,
             ),
-            State(INTERVAL, "2"),
+            (State(INTERVAL, "2"), "3-run_interval", None),
         ],
     )
     await _setup(hass, rainbird_entry, extended_entry)

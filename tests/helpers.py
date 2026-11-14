@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
+import json
+from typing import Any
 from unittest.mock import MagicMock
 
 from freezegun.api import FrozenDateTimeFactory
@@ -13,9 +16,13 @@ from pytest_homeassistant_custom_component.common import (
 
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.const import ATTR_ENTITY_ID
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.data_entry_flow import FlowResult, FlowResultType
+from homeassistant.helpers import entity_registry as er, restore_state as rs
+from homeassistant.helpers.json import JSONEncoder
 from homeassistant.util import dt as dt_util
+
+from .conftest import RAINBIRD_UNIQUE_ID
 
 
 async def _poll_core(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
@@ -108,3 +115,46 @@ async def _open_options(
     return await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": step}
     )
+
+
+def restore_states(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    states: Sequence[tuple[State, str, Mapping[str, Any] | None]],
+) -> None:
+    """Give our entities a saved state from before a restart.
+
+    Each item is the saved state, the end of the entity's unique id after the
+    controller ("3-time_remaining") and the extra data, if any. The entities
+    are registered first, as they are after a real restart: Home Assistant
+    2026.11 keeps saved states by entity registry id, older releases by
+    entity id.
+    """
+    registry = er.async_get(hass)
+    stored: list[dict[str, Any]] = []
+    now = dt_util.utcnow()
+    for state, key, extra_data in states:
+        domain, object_id = state.entity_id.split(".", 1)
+        entity = registry.async_get_or_create(
+            domain,
+            "rainbird_extended",
+            f"{RAINBIRD_UNIQUE_ID}-{key}",
+            config_entry=entry,
+            suggested_object_id=object_id,
+        )
+        assert entity.entity_id == state.entity_id
+        saved = dict(state.as_dict())
+        saved["attributes"] = json.loads(
+            json.dumps(saved["attributes"], cls=JSONEncoder)
+        )
+        stored.append({"state": saved, "extra_data": extra_data, "last_seen": now})
+    data = rs.RestoreStateData(hass)
+    if hasattr(data, "_async_load_stored_states"):  # Home Assistant 2026.11+
+        data._async_load_stored_states(stored)
+    else:
+        data.last_states = {
+            item["state"]["entity_id"]: rs.StoredState.from_dict(item)
+            for item in stored
+        }
+    rs.async_get.cache_clear()
+    hass.data[rs.DATA_RESTORE_STATE] = data

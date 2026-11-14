@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2026-11-14
+
+### Fixed
+
+- **Tests ready for Home Assistant 2026.11.** Home Assistant 2026.11 keeps the states it restores after a restart by entity rather than by entity ID, so the tests that check restored run times and last runs now set those states up the way a real restart does. Restoring after a restart works as before. Nothing changes for you.
+
 ## [2.0.2] - 2026-11-13
 
 ### Changed
@@ -352,6 +358,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[2.0.3]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v1.10.4...v2.0.0

@@ -8,10 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from freezegun.api import FrozenDateTimeFactory
 from pyrainbird.exceptions import RainbirdDeviceBusyException, RainbirdDeviceNackError
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_restore_cache_with_extra_data,
-)
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.components.number import (
     ATTR_VALUE,
@@ -31,7 +28,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .conftest import RAINBIRD_UNIQUE_ID, ZONES, controller_state
-from .helpers import _poll_core
+from .helpers import _poll_core, restore_states
 
 VALVE = "valve.rain_bird_sprinkler_2"
 SWITCH = "switch.rain_bird_sprinkler_2"
@@ -315,11 +312,13 @@ async def test_runtime_restored(
     extended_entry: MockConfigEntry,
 ) -> None:
     """The valve runtime survives restarts and is used when opening."""
-    mock_restore_cache_with_extra_data(
+    restore_states(
         hass,
+        extended_entry,
         [
             (
                 State(RUNTIME, "900"),
+                "2-valve_runtime",
                 {
                     "native_max_value": 86400,
                     "native_min_value": 60,
