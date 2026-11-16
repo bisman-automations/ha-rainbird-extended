@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Programs that aren't set up are no longer shown** in the panel. The Programs section lists only the controller's set-up programs, and is left out when there are none.
+- **A lighter panel.** The panel used to update controller statuses and the yard map on every change anywhere in Home Assistant. It now updates only when one of your controllers' or zones' own entities changes. In a hidden browser tab or on a switched-off screen it stops updating (the yard map's minutes left included), and catches up once it's seen again.
+- **Ready for Home Assistant 2026.12.** A test that set up a repair by hand now goes through Home Assistant's repairs, the way the Repairs page does; 2026.12 reports the old way.
 
 ## [2.1.1] - 2026-11-14
 

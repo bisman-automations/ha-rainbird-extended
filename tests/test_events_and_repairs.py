@@ -9,12 +9,14 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.rainbird_extended.const import CONF_RAINBIRD_ENTRY_ID, DOMAIN
 from custom_components.rainbird_extended.repairs import async_create_fix_flow
+from homeassistant.components.repairs import RepairsFlow, repairs_flow_manager
 from homeassistant.components.valve import DOMAIN as VALVE_DOMAIN, SERVICE_OPEN_VALVE
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 
 from .helpers import _local, _poll_core, _setup, _unload, zone_calendar_events
@@ -108,12 +110,19 @@ async def test_repair_when_rainbird_removed(
     assert issue is not None
     assert issue.is_fixable
 
-    flow = await async_create_fix_flow(hass, issue_id, issue.data)
-    flow.hass = hass
-    flow.issue_id = issue_id
-    result = await flow.async_step_init()
+    assert isinstance(
+        await async_create_fix_flow(hass, issue_id, issue.data), RepairsFlow
+    )
+    # Through Home Assistant's repairs, as the Repairs page does (setting a
+    # flow's issue_id by hand is reported from 2026.12).
+    assert await async_setup_component(hass, "repairs", {})
+    flows = repairs_flow_manager(hass)
+    assert flows is not None
+    result = await flows.async_init(
+        DOMAIN, context={"issue_id": issue_id}, data={"issue_id": issue_id}
+    )
     assert result["type"] is FlowResultType.FORM
-    result = await flow.async_step_confirm({})
+    result = await flows.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
     assert hass.config_entries.async_get_entry(entry.entry_id) is None

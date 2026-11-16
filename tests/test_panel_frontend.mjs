@@ -551,3 +551,19 @@ test("zones can be hidden and shown again from the panel", () => {
   assert.match(hidden, /data-action="show-zone"[^>]*data-zone="5"/);
   assert.equal(panel._hiddenZones({ hidden_zones: [] }), "");
 });
+
+test("only its own entities' changes make the page look again", () => {
+  const panel = new Panel();
+  const valve = { state: "closed" };
+  panel._data = {
+    controllers: [{ entry_id: "e", power_entity: "switch.rain_bird_power", zones: [{ valve_entity: "valve.front" }] }],
+  };
+  panel._hass = { states: { "valve.front": valve, "light.porch": { state: "on" } } };
+  assert.equal(panel._ownChanged(), true); // the first look
+  panel._hass = { states: { "valve.front": valve, "light.porch": { state: "off" } } };
+  assert.equal(panel._ownChanged(), false); // someone else's light
+  panel._hass = { states: { "valve.front": { state: "open" }, "light.porch": { state: "off" } } };
+  assert.equal(panel._ownChanged(), true); // the zone started watering
+  panel._data = { controllers: [] };
+  assert.equal(panel._ownChanged(), true); // new data: look again
+});

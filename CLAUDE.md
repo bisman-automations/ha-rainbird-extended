@@ -130,6 +130,7 @@ connection and coordinators; it never opens its own connection.
   or chosen `.p8` (`yardP8Key`: Key ID from `AuthKey_<id>.p8`), asks only for
   the Team ID, and saves once all three are there; MapKit's `error` event
   reports a refused key.
+- The panel's `set hass` does nothing unless `_ownChanged()` (any entity id in `_data`, `yardEntityIds`, has a new state object); while `yardPageHidden()` it waits and catches up on `visibilitychange`, and the yard's 30-second refresh skips. Tests drive repairs through `repairs_flow_manager(hass)` (2026.12 reports setting a flow's `issue_id` by hand).
 - Hidden zones: `panel/zone_hidden` turns our zone device off
   (`DeviceEntryDisabler.USER`) or back on (then reloads the entry). The panel
   lists any zone whose device is off under `hidden_zones` and leaves it out of

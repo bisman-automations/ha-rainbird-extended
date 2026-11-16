@@ -194,6 +194,24 @@ const YARD_STYLE = `
   @media(max-width:600px){.yard-map{height:360px}}
 `;
 
+
+// Whether the page can't be seen (another tab, or a screen that's off).
+function yardPageHidden() {
+  return typeof document !== "undefined" && Boolean(document.hidden);
+}
+
+// Every entity id the panel's data mentions, for watching their states.
+function yardEntityIds(value, found = new Set()) {
+  if (typeof value === "string") {
+    if (/^[a-z_]+\.[a-z0-9_]+$/.test(value)) found.add(value);
+  } else if (Array.isArray(value)) {
+    value.forEach((v) => yardEntityIds(v, found));
+  } else if (value && typeof value === "object") {
+    Object.values(value).forEach((v) => yardEntityIds(v, found));
+  }
+  return [...found];
+}
+
 class YardMap {
   constructor(panel, entryId) {
     this.panel = panel;
@@ -213,7 +231,10 @@ class YardMap {
     for (const type of ["dragenter", "dragover", "dragleave", "drop"]) {
       this.root.addEventListener(type, (event) => this._onDrag(event));
     }
-    this._ticker = setInterval(() => this.refresh(), 30000);
+    // Minutes left move on even when nothing reports; not while hidden.
+    this._ticker = setInterval(() => {
+      if (!yardPageHidden()) this.refresh();
+    }, 30000);
   }
 
   get hass() {
@@ -767,12 +788,51 @@ class RainbirdExtendedPanel extends HTMLElement {
     if (!this._loaded) {
       this._loaded = true;
       this._load();
+    } else if (!this._ownChanged()) {
+      // Home Assistant sends a new hass on every state change in the house;
+      // only the controllers' and zones' own entities matter here.
     } else if (this._powerStatesChanged()) {
       // Turning the controller off or on changes the programs' next runs.
       this._refresh().catch(() => this._updateControllerStatuses());
     } else {
       this._updateControllerStatuses();
       this._yards?.forEach((yard) => yard.refresh());
+    }
+  }
+
+  // Whether a state this page shows changed since the last look. A hidden
+  // page (another tab, a screen that's off) catches up once it's seen again.
+  _ownChanged() {
+    if (yardPageHidden()) {
+      this._stale = true;
+      if (!this._onVisible) {
+        this._onVisible = () => {
+          if (yardPageHidden() || !this._stale || !this._hass) return;
+          this._stale = false;
+          this._ownStates = null;
+          this.hass = this._hass;
+        };
+        document.addEventListener("visibilitychange", this._onVisible);
+      }
+      return false;
+    }
+    if (!this._data) return true;
+    if (this._ownFor !== this._data) {
+      this._ownFor = this._data;
+      this._ownIds = yardEntityIds(this._data);
+      this._ownStates = null;
+    }
+    const states = this._hass?.states || {};
+    const now = this._ownIds.map((id) => states[id]);
+    const before = this._ownStates;
+    this._ownStates = now;
+    return !before || before.length !== now.length || now.some((s, i) => s !== before[i]);
+  }
+
+  disconnectedCallback() {
+    if (this._onVisible) {
+      document.removeEventListener("visibilitychange", this._onVisible);
+      this._onVisible = null;
     }
   }
 
