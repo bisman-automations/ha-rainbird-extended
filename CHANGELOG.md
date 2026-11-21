@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-11-20
+
+### Changed
+
+- **Less work on every change in your home.** Rain Bird Extended used to look at every state change anywhere in Home Assistant (often several a second) and, for each one, look up Rain Bird's entities again. It now keeps that list and only hears about Rain Bird's own entities, so the rest of your home costs it nothing. The list is looked up again when an entity is added, renamed, enabled or removed.
+- **Ruff 0.17.6.** Linting uses the current Ruff release.
+
 ## [2.2.0] - 2026-11-14
 
 ### Added
@@ -388,6 +395,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[2.2.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.1.1...v2.2.0
 [2.1.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.0.3...v2.1.0

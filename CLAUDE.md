@@ -100,6 +100,11 @@ connection and coordinators; it never opens its own connection.
   3. zone run times listed on Rain Bird's schedule calendar (Home Assistant
      2026.11 and newer);
   4. an estimate from the valve runtime, from when the zone switch turned on.
+  The coordinator hears Rain Bird's state changes through one
+  `EVENT_STATE_CHANGED` listener with `event_filter=_is_watched`;
+  `watched_entity_ids()` caches `core.watched_entity_ids()` and any entity
+  registry update clears it (2.2.1). Don't drop the filter: without it every
+  state change in the home walks the entity registry.
 - `programs.py`: programs entered in the options. They build the same
   pyrainbird recurrences the controller's schedule would, without talking
   to the controller.

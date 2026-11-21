@@ -195,6 +195,9 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         self._sequence_unsub: CALLBACK_TYPE | None = None
         # Re-read the switches while a run or sequence is in progress.
         self._running_unsub: CALLBACK_TYPE | None = None
+        # Rain Bird entities that refresh us, worked out from the entity
+        # registry once and again only after the registry changes.
+        self._watched: set[str] | None = None
         # zone -> callbacks for run started/finished.
         self._run_listeners: dict[int, list[RunListener]] = {}
 
@@ -289,7 +292,13 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
     def async_start(self) -> None:
         """Refresh when Rain Bird's entities change. Don't subscribe to its coordinators."""
         self.config_entry.async_on_unload(
-            self.hass.bus.async_listen(EVENT_STATE_CHANGED, self._handle_core_state)
+            self.hass.bus.async_listen(
+                EVENT_STATE_CHANGED,
+                self._handle_core_state,
+                # Every state change in Home Assistant passes through here;
+                # only Rain Bird's own entities go on to the handler.
+                event_filter=self._is_watched,
+            )
         )
         self.config_entry.async_on_unload(
             self.hass.bus.async_listen(
@@ -330,19 +339,31 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         return self.turned_off_since is not None
 
     @callback
-    def _handle_core_state(self, event: Event[EventStateChangedData]) -> None:
+    def watched_entity_ids(self) -> set[str]:
+        """Rain Bird entities whose state refreshes us (kept until the registry changes)."""
+        if self._watched is None:
+            self._watched = self.core.watched_entity_ids()
+        return self._watched
+
+    @callback
+    def _is_watched(self, event_data: EventStateChangedData) -> bool:
+        return event_data["entity_id"] in self.watched_entity_ids()
+
+    @callback
+    def _handle_core_state(self, _event: Event[EventStateChangedData]) -> None:
         """Refresh when a Rain Bird entity we watch changes."""
-        if event.data["entity_id"] in self.core.watched_entity_ids():
-            self.config_entry.async_create_background_task(
-                self.hass, self.async_request_refresh(), f"{DOMAIN} refresh"
-            )
+        self.config_entry.async_create_background_task(
+            self.hass, self.async_request_refresh(), f"{DOMAIN} refresh"
+        )
 
     @callback
     def _handle_registry(self, event: Event[er.EventEntityRegistryUpdatedData]) -> None:
         """Pick up a Rain Bird switch that was enabled or added."""
+        # An entity added, removed, renamed or re-enabled can change the set.
+        self._watched = None
         if event.data["action"] not in ("create", "update"):
             return
-        if event.data["entity_id"] in self.core.watched_entity_ids():
+        if event.data["entity_id"] in self.watched_entity_ids():
             self.config_entry.async_create_background_task(
                 self.hass, self.async_request_refresh(), f"{DOMAIN} refresh"
             )
