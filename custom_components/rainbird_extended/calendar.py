@@ -89,6 +89,11 @@ class RainbirdRunHistory(RainbirdExtendedControllerEntity, CalendarEntity):
         )
         # {"zone", "start", "end", "source"}, oldest first.
         self._runs: list[dict[str, Any]] = []
+        # The finished run that started last: (zone, start, end, source).
+        # Worked out when the history changes, not on every state write.
+        self._newest: tuple[int, datetime, datetime, str] | None = None
+        # A finished run not yet written to disk.
+        self._unsaved = False
 
     @callback
     def async_entity_id_changed(self, old_entity_id: str) -> None:
@@ -105,6 +110,7 @@ class RainbirdRunHistory(RainbirdExtendedControllerEntity, CalendarEntity):
         await super().async_added_to_hass()
         if (data := await self._store.async_load()) is not None:
             self._runs = list(data.get("runs", []))
+        self._newest = self._find_newest()
         for zone in self.coordinator.linked_zones:
             self.async_on_remove(
                 self.coordinator.async_add_run_listener(
@@ -125,8 +131,45 @@ class RainbirdRunHistory(RainbirdExtendedControllerEntity, CalendarEntity):
             )
             cutoff = (dt_util.utcnow() - KEEP).isoformat()
             self._runs = [r for r in self._runs if r["end"] >= cutoff]
-            self._store.async_delay_save(lambda: {"runs": self._runs}, SAVE_DELAY)
+            self._newest = self._find_newest()
+            self._unsaved = True
+            self._store.async_delay_save(self._data_to_save, SAVE_DELAY)
         self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Write runs that haven't been saved yet.
+
+        Reloading the entry makes a new calendar that reads the file, so a
+        run still waiting for its delayed save would otherwise be lost.
+        """
+        await super().async_will_remove_from_hass()
+        if self._unsaved:
+            await self._store.async_save(self._data_to_save())
+
+    def _data_to_save(self) -> dict[str, Any]:
+        self._unsaved = False
+        return {"runs": self._runs}
+
+    @staticmethod
+    def _parse(record: dict[str, Any]) -> tuple[int, datetime, datetime, str] | None:
+        """A stored run, or None when it can't be read."""
+        try:
+            start = dt_util.parse_datetime(record["start"])
+            end = dt_util.parse_datetime(record["end"])
+            if start and end:
+                return record["zone"], start, end, record["source"]
+        except (KeyError, TypeError, ValueError, HomeAssistantError) as err:
+            _LOGGER.debug("Skipping run history record %s: %s", record, err)
+        return None
+
+    def _find_newest(self) -> tuple[int, datetime, datetime, str] | None:
+        """The stored run with the latest start (the first, on a tie)."""
+        newest: tuple[int, datetime, datetime, str] | None = None
+        for record in self._runs:
+            parsed = self._parse(record)
+            if parsed is not None and (newest is None or parsed[1] > newest[1]):
+                newest = parsed
+        return newest
 
     def _event(
         self, zone: int, start: datetime, end: datetime, source: str, running: bool
@@ -153,28 +196,40 @@ class RainbirdRunHistory(RainbirdExtendedControllerEntity, CalendarEntity):
     def _all_events(self) -> list[CalendarEvent]:
         events = []
         for record in self._runs:
-            try:
-                start = dt_util.parse_datetime(record["start"])
-                end = dt_util.parse_datetime(record["end"])
-                if start and end:
-                    events.append(
-                        self._event(record["zone"], start, end, record["source"], False)
-                    )
-            except (KeyError, TypeError, ValueError, HomeAssistantError) as err:
-                _LOGGER.debug("Skipping run history record %s: %s", record, err)
-        # Runs still going, ending when expected (or now, if unknown).
+            if (parsed := self._parse(record)) is not None:
+                zone, start, end, source = parsed
+                events.append(self._event(zone, start, end, source, False))
+        events.extend(self._running_events())
+        return events
+
+    def _running_events(self) -> list[CalendarEvent]:
+        """Runs still going, ending when expected (or now, if unknown)."""
         now = dt_util.utcnow()
         end_times = self.coordinator.data or {}
-        for zone, run in self.coordinator.last_runs.items():
-            if run.end is None:
-                end = end_times.get(zone) or now + timedelta(minutes=1)
-                events.append(self._event(zone, run.start, end, run.source, True))
-        return events
+        return [
+            self._event(
+                zone,
+                run.start,
+                end_times.get(zone) or now + timedelta(minutes=1),
+                run.source,
+                True,
+            )
+            for zone, run in self.coordinator.last_runs.items()
+            if run.end is None
+        ]
 
     @property
     def event(self) -> CalendarEvent | None:
-        """The run going on now, or else the most recent one."""
-        events = self._all_events()
+        """The run going on now, or else the most recent one.
+
+        Read on every state write, so only the newest stored run is looked
+        at, not the whole year of history.
+        """
+        events = []
+        if self._newest is not None:
+            zone, start, end, source = self._newest
+            events.append(self._event(zone, start, end, source, False))
+        events.extend(self._running_events())
         return max(events, key=lambda e: e.start) if events else None
 
     async def async_get_events(

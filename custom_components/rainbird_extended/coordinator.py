@@ -305,6 +305,12 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
                 er.EVENT_ENTITY_REGISTRY_UPDATED, self._handle_registry
             )
         )
+        # Every registry update reaches _handle_registry, which drops what
+        # the core kept, so its lookups can be kept until then.
+        self.core.async_track_registry()
+        self.config_entry.async_on_unload(
+            lambda: self.core.async_track_registry(tracking=False)
+        )
         if self.power_entity:
             # Turning the controller off or on changes what's scheduled.
             self.config_entry.async_on_unload(
@@ -361,6 +367,7 @@ class RainbirdExtendedCoordinator(DataUpdateCoordinator[ZoneEndTimes]):
         """Pick up a Rain Bird switch that was enabled or added."""
         # An entity added, removed, renamed or re-enabled can change the set.
         self._watched = None
+        self.core.async_registry_changed()
         if event.data["action"] not in ("create", "update"):
             return
         if event.data["entity_id"] in self.watched_entity_ids():

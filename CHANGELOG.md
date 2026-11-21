@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.2] - 2026-11-21
+
+### Fixed
+
+- **Runs no longer go missing from the run history when Rain Bird Extended reloads.** A run that had just finished was written to disk up to 30 seconds later. Saving options, hiding or showing a zone, or Rain Bird reloading in that time dropped it from the Run history calendar. It's now saved before the reload.
+
+### Changed
+
+- **Less work every time Rain Bird Extended updates.** The Run history calendar used to read through its whole history (up to a year of runs) each time it updated, just to show the latest one. It now remembers the latest run and only looks again when a run finishes.
+- **Fewer lookups for each zone.** Each zone's entities used to look up Rain Bird's entities several times every time they updated, to check the controller and zone are reachable. Those are now looked up once and again only when an entity is added, renamed, enabled or removed.
+
 ## [2.2.1] - 2026-11-20
 
 ### Changed
@@ -395,6 +406,7 @@ Initial release.
 - Config flow that adds a single controller immediately or lets you pick one
   when there are several.
 
+[2.2.2]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.2.1...v2.2.2
 [2.2.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.1.1...v2.2.0
 [2.1.1]: https://github.com/bisman-automations/ha-rainbird-extended/compare/v2.1.0...v2.1.1

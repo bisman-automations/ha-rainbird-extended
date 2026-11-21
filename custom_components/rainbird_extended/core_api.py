@@ -98,6 +98,26 @@ class RainbirdCore:
         self.hass = hass
         self.entry = entry
         self.unique_id = str(entry.unique_id or "")
+        # Rain Bird's registry entries, kept while the owner listens for
+        # entity registry updates (see ``async_track_registry``) and dropped
+        # on every one. Entities read these on each state write.
+        self._tracking = False
+        self._cached_entries: list[er.RegistryEntry] | None = None
+
+    @callback
+    def async_track_registry(self, tracking: bool = True) -> None:
+        """Keep registry lookups until ``async_registry_changed`` is called.
+
+        Only for an owner that calls ``async_registry_changed`` on every
+        entity registry update; otherwise each lookup reads the registry.
+        """
+        self._tracking = tracking
+        self._cached_entries = None
+
+    @callback
+    def async_registry_changed(self) -> None:
+        """Forget the registry entries kept since the last update."""
+        self._cached_entries = None
 
     @property
     def loaded(self) -> bool:
@@ -105,8 +125,13 @@ class RainbirdCore:
         return self.entry.state is ConfigEntryState.LOADED
 
     def _entries(self) -> list[er.RegistryEntry]:
+        if self._cached_entries is not None:
+            return self._cached_entries
         registry = er.async_get(self.hass)
-        return er.async_entries_for_config_entry(registry, self.entry.entry_id)
+        entries = er.async_entries_for_config_entry(registry, self.entry.entry_id)
+        if self._tracking:
+            self._cached_entries = entries
+        return entries
 
     def _entity_id(self, domain: str, unique_id: str) -> str | None:
         """Entity id of one Rain Bird registry entry, including disabled ones."""
